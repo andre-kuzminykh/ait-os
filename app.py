@@ -3,6 +3,8 @@ AI Business Operating System (AI BOS) — Workspace OS
 Единая среда работы человека и ИИ на Streamlit.
 """
 
+from __future__ import annotations
+
 import streamlit as st
 import json
 from datetime import datetime
