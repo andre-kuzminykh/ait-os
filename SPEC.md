@@ -108,6 +108,11 @@
 | **Output** | Код с подсветкой синтаксиса в чате; кнопка сохранения |
 | **State** | `chatHistory` += 2 записи |
 
+**Edge cases:**
+- Очень длинный вывод кода (> 10 000 строк) → truncation с кнопкой «Показать полностью»
+- Модель не определила язык кода → fallback на plain text
+- Таймаут генерации кода (> 60 с) → уведомление; возможность retry
+
 **Functional Requirements**
 
 | Req ID | Requirement |
@@ -185,11 +190,16 @@
 | **Output** | Файл обновлён; новая запись в `file_versions` |
 | **State** | `workspace[path].content` обновлён; `file_versions` += 1 запись |
 
+**Edge cases:**
+- Превышен лимит 100 версий → самая старая версия автоматически удаляется
+- Сохранение без изменений (content идентичен) → версия НЕ создаётся (оптимизация)
+- Файл > 1 МБ → предупреждение о размере, но версия всё равно создаётся
+
 **Functional Requirements**
 
 | Req ID | Requirement |
 |--------|-------------|
-| FR-18 | Каждое сохранение файла автоматически создаёт версию (snapshot) в таблице `file_versions` |
+| FR-18 | Каждое сохранение файла автоматически создаёт версию (snapshot) в таблице `file_versions`; если content не изменился — версия не создаётся |
 | FR-19 | Панель «История версий» в Editor: список версий с датой, номером версии и размером |
 | FR-20 | Просмотр любой версии: клик по версии → содержимое отображается в read-only |
 | FR-21 | Откат к версии: кнопка «Восстановить» → текущий content заменяется на content версии (при этом создаётся новая версия) |
@@ -454,7 +464,7 @@
 
 | Req ID | Requirement |
 |--------|-------------|
-| FR-42 | AI генерирует полный Streamlit-код на основе текстового описания пользователя |
+| FR-42 | AI генерирует полный Streamlit-код на основе текстового описания пользователя. Режим генерации активируется через кнопку «Создать приложение» в чате (отдельный от обычного чата intent) |
 | FR-43 | Сгенерированный код автоматически сохраняется в файловое хранилище: `apps/<app_name>/app.py` |
 | FR-44 | Бэкенд запускает Streamlit-процесс (`streamlit run app.py --server.port <port>`) на уникальном порту |
 | FR-45 | Iframe в UI отображает работающее Streamlit-приложение |
@@ -468,6 +478,7 @@
 | NFR-24 | Максимум 3 одновременно запущенных Streamlit-приложения (ограничение ресурсов) |
 | NFR-25 | Каждый Streamlit-процесс изолирован (отдельный порт, отдельная директория) |
 | NFR-26 | При остановке/закрытии приложения — процесс корректно завершается (SIGTERM) |
+| NFR-26a | Безопасность: Streamlit-процессы запускаются с ограничением ресурсов (CPU: 1 ядро, RAM: 512 МБ, timeout: 30 мин); запрет доступа к файловой системе за пределами своей директории; whitelist Python-пакетов |
 
 #### Use Case BDD 2 — Итеративное редактирование через чат
 
@@ -617,9 +628,37 @@
 | `/api/apps/:id/stop` | POST | Остановить |
 | `/api/apps/:id/restart` | POST | Перезапустить |
 
+**Адресация**: Workspace CRUD использует `path[]` (массив строк) для адресации по пути; PATCH rename/toggle использует `:id` (числовой ID узла из БД). GET /api/workspace возвращает `id` для каждого узла, чтобы фронт мог использовать оба подхода.
+
 **Request Schema (ключевые)**
 
 ```json
+// POST /api/workspace/file
+{
+  "parentPath": ["Проекты", "AI BOS"],
+  "name": "notes.md",
+  "content": ""
+}
+
+// POST /api/workspace/folder
+{
+  "parentPath": ["Проекты"],
+  "name": "Новая папка"
+}
+
+// DELETE /api/workspace/file
+{
+  "path": ["Проекты", "AI BOS", "notes.md"]
+}
+
+// PATCH /api/workspace/node/:id/rename
+{
+  "newName": "README.md"
+}
+
+// PATCH /api/workspace/node/:id/toggle
+// пустое тело — сервер инвертирует is_open
+
 // POST /api/chat
 {
   "text": "Проанализируй этот файл",
@@ -686,6 +725,39 @@
       }
     }
   }
+}
+
+// POST /api/workspace/file → 201
+{
+  "id": 15,
+  "name": "notes.md",
+  "type": "file",
+  "content": "",
+  "parentId": 3,
+  "createdAt": "2026-03-15T14:30:00Z"
+}
+
+// POST /api/workspace/folder → 201
+{
+  "id": 16,
+  "name": "Новая папка",
+  "type": "folder",
+  "isOpen": false,
+  "parentId": 1,
+  "createdAt": "2026-03-15T14:30:00Z"
+}
+
+// DELETE /api/workspace/file → 200
+{
+  "deleted": 3,
+  "message": "Удалено 3 узла"
+}
+
+// PATCH /api/workspace/node/:id/rename → 200
+{
+  "id": 15,
+  "name": "README.md",
+  "updatedAt": "2026-03-15T14:31:00Z"
 }
 
 // POST /api/chat → 201
@@ -765,17 +837,20 @@
        └─────────────────┘    ┌─────────────────────┐
        (self-ref, CASCADE)    │       tasks          │
                               ├─────────────────────┤
-┌─────────────────────┐       │ id (PK, serial)      │
-│   chat_messages     │       │ title (varchar 500)  │
-├─────────────────────┤       │ status (enum)        │ done|running|pending
-│ id (PK, serial)     │       │ type (enum)          │ LLM|MCP|Code|Manual
-│ role (enum)         │       │ source_chat_id (FK)  │──► chat_messages.id (nullable)
-│ text (text)         │       │ created_at (ts)      │
-│ model_id (varchar)  │       │ updated_at (ts)      │
-│ context_files(jsonb)│       └─────────────────────┘
-│ created_at (ts)     │
-│ updated_at (ts)     │       ┌─────────────────────┐
-└─────────────────────┘       │   streamlit_apps     │
+┌──────────────────────┐       │ id (PK, serial)      │
+│   chat_messages      │       │ title (varchar 500)  │
+├──────────────────────┤       │ status (enum)        │ done|running|pending
+│ id (PK, serial)      │       │ type (enum)          │ LLM|MCP|Code|Manual
+│ role (enum)          │ u|ai  │ source_chat_id (FK)  │──► chat_messages.id (nullable)
+│ text (text)          │       │ created_at (ts)      │
+│ model_id (varchar)   │       │ updated_at (ts)      │
+│ provider (varchar)   │       └─────────────────────┘
+│ context_files (jsonb)│  [{fileId, versionId, name}]
+│ attachments (jsonb)  │  [{type:"image"|"code", fileId, url}]
+│ is_error (bool)      │  default false
+│ created_at (ts)      │
+│ updated_at (ts)      │       ┌─────────────────────┐
+└──────────────────────┘       │   streamlit_apps     │
                               ├─────────────────────┤
 ┌─────────────────────┐       │ id (PK, serial)      │
 │   ai_providers      │       │ name (varchar 255)   │
@@ -797,7 +872,7 @@
 | `workspace_nodes.parent_id → workspace_nodes.id` | self-ref FK, ON DELETE CASCADE | Папки содержат файлы и подпапки |
 | `file_versions.file_id → workspace_nodes.id` | FK, ON DELETE CASCADE | Версии привязаны к файлу |
 | `tasks.source_chat_id → chat_messages.id` | FK, nullable | Задачи из чата ссылаются на сообщение |
-| `streamlit_apps.file_id → workspace_nodes.id` | FK | Приложение ссылается на файл app.py |
+| `streamlit_apps.file_id → workspace_nodes.id` | FK, ON DELETE RESTRICT | Приложение ссылается на файл app.py; удаление файла запрещено, пока есть связанное приложение |
 
 **Индексы**
 
@@ -894,7 +969,7 @@
 | UC-5.1, UC-5.2 | T-4 | CRUD задач + Dashboard | — | Задачи CRUD через API; фильтрация; бейджи статусов |
 | UC-1.1, UC-1.2, UC-1.3 | T-5 | Мультимодальный AI-хаб (чат + роутинг моделей) | T-4 | Чат с выбором модели; текст + изображения + код; SSE streaming; авто-задачи |
 | UC-3.1, UC-3.2 | T-6 | Управление контекстом (drag & drop) | T-1, T-2, T-5 | Drag файлов в контекст; чипсы с версиями; контекст передаётся в промпт |
-| UC-6.1, UC-6.2, UC-6.3 | T-7 | AI-генерация Streamlit-приложений | T-5, T-1 | AI генерирует код; Streamlit запускается; iframe превью; итеративное редактирование |
+| UC-6.1, UC-6.2, UC-6.3 | T-7 | AI-генерация Streamlit-приложений | T-5, T-1, T-2 | AI генерирует код; Streamlit запускается; iframe превью; итеративное редактирование |
 | UC-7.1 | T-8 | Навигация Home ↔ File View | T-1, T-3 | Переключение; вкладки сохраняются |
 
 ---
@@ -1002,7 +1077,7 @@
 
 | Subtask ID | Description | Dependencies | Acceptance Criteria |
 |------------|-------------|--------------|---------------------|
-| ST-18 | Таблица `chat_messages` (role, text, model_id, context_files jsonb) + таблица `ai_providers` | — | Миграции; seed с провайдерами |
+| ST-18 | Таблица `chat_messages` (role, text, model_id, provider, context_files jsonb, attachments jsonb, is_error) + таблица `ai_providers` | — | Миграции; seed с провайдерами |
 | ST-19 | GET /api/models — список доступных моделей с capabilities | ST-18 | Возвращает модели с provider, capabilities, maxTokens |
 | ST-20 | POST /api/chat — роутинг к провайдеру (OpenAI/Anthropic/Mistral); сохранение; авто-задача | ST-18, T-4 | Запрос уходит к выбранному провайдеру; 2 сообщения + задача сохранены |
 | ST-21 | POST /api/chat/stream — SSE streaming ответа | ST-20 | Текст появляется по мере генерации; финальное сообщение сохраняется |
@@ -1039,7 +1114,7 @@
 | **Task ID** | T-7 |
 | **Related Use Case** | UC-6.1, UC-6.2, UC-6.3 |
 | **Task Description** | AI-генерация Streamlit-приложений: генерация кода, запуск процесса, iframe превью, итеративное редактирование, управление |
-| **Dependencies** | T-5, T-1 |
+| **Dependencies** | T-5, T-1, T-2 |
 | **DoD** | AI генерирует Streamlit-код по описанию; код сохраняется; Streamlit запускается; iframe; итерация через чат; панель «Мои приложения» |
 
 **Subtasks**
