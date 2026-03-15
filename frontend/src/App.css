@@ -1,0 +1,74 @@
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.main-header {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #1e2028;
+}
+.main-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #e0e0e0;
+}
+
+.main-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.center-panel {
+  flex: 3;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 0.5rem 1rem;
+}
+
+.right-panel {
+  flex: 2;
+  min-width: 280px;
+  max-width: 420px;
+  border-left: 1px solid #1e2028;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Shared button styles */
+.btn {
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border: none;
+  transition: all 0.12s;
+}
+.btn-primary {
+  background: #4f8bf9;
+  color: #fff;
+}
+.btn-primary:hover {
+  background: #3b75e0;
+}
+.btn-ghost {
+  background: transparent;
+  border: 1px solid #252830;
+  color: #aaa;
+}
+.btn-ghost:hover {
+  border-color: #3a3f4b;
+  color: #ddd;
+}

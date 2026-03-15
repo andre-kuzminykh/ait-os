@@ -1,0 +1,185 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---- Tab bar ---- */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #1e2028;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex-shrink: 0;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  color: #666;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  top: 2px;
+  user-select: none;
+  transition: all 0.12s;
+}
+.tab-item:hover {
+  color: #aaa;
+  background: rgba(255, 255, 255, 0.03);
+}
+.tab-item.active {
+  background: #1a1d24;
+  color: #e0e0e0;
+  font-weight: 600;
+  border-color: #1e2028;
+}
+
+.tab-close {
+  font-size: 0.65rem;
+  opacity: 0;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: opacity 0.1s;
+}
+.tab-item:hover .tab-close,
+.tab-item.active .tab-close {
+  opacity: 0.5;
+}
+.tab-close:hover {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---- Content ---- */
+.editor-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.8rem 1rem;
+}
+
+.editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.editor-file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.editor-breadcrumb {
+  font-size: 0.72rem;
+  color: #555;
+}
+
+.editor-filename {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ddd;
+}
+
+.editor-separator {
+  height: 1px;
+  background: #1e2028;
+  margin: 0.6rem 0;
+}
+
+.editor-toolbar {
+  margin-bottom: 0.5rem;
+}
+
+.editor-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #ccc;
+}
+
+.editor-textarea {
+  width: 100%;
+  min-height: 400px;
+  padding: 0.7rem;
+  background: #12141a;
+  border: 1px solid #252830;
+  border-radius: 6px;
+  color: #ddd;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.editor-textarea:focus {
+  border-color: #4f8bf9;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* ---- Markdown rendered ---- */
+.editor-markdown {
+  color: #ccc;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+.editor-markdown h1 {
+  font-size: 1.5rem;
+  color: #e8e8e8;
+  margin: 0 0 0.6rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #252830;
+}
+.editor-markdown h2 {
+  font-size: 1.2rem;
+  color: #ddd;
+  margin: 1rem 0 0.4rem;
+}
+.editor-markdown h3 {
+  font-size: 1rem;
+  color: #ccc;
+  margin: 0.8rem 0 0.3rem;
+}
+.editor-markdown p {
+  margin: 0.3rem 0;
+}
+.editor-markdown table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+}
+.editor-markdown td {
+  border: 1px solid #252830;
+  padding: 0.35rem 0.7rem;
+}
+.editor-markdown code {
+  background: #1a1d24;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.82rem;
+  color: #f2c94c;
+}
+.editor-markdown .md-list-item {
+  padding: 0.1rem 0 0.1rem 0.5rem;
+}
+.editor-markdown .md-checkbox {
+  padding: 0.1rem 0 0.1rem 0.3rem;
+  color: #888;
+}
+.editor-markdown .md-checkbox.done {
+  color: #6fcf97;
+  text-decoration: line-through;
+}

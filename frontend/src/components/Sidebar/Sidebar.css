@@ -1,0 +1,164 @@
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: #12141a;
+  border-right: 1px solid #1e2028;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+.sidebar-home-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: calc(100% - 1rem);
+  margin: 0.25rem 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: rgba(79, 139, 249, 0.1);
+  border: 1px solid rgba(79, 139, 249, 0.2);
+  border-radius: 6px;
+  color: #7ab3ff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sidebar-home-btn:hover {
+  background: rgba(79, 139, 249, 0.2);
+}
+
+.sidebar-section-label {
+  font-size: 0.68rem;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.6rem 0.75rem 0.25rem;
+}
+
+.sidebar-tree {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Folder button */
+.tree-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.2rem 0.5rem;
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+.tree-folder-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #ddd;
+}
+
+.tree-arrow {
+  font-size: 0.6rem;
+  width: 12px;
+  text-align: center;
+  color: #555;
+}
+
+.tree-icon {
+  font-size: 0.82rem;
+}
+
+.tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* File button */
+.tree-file-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.18rem 0.5rem;
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 3px;
+  transition: all 0.1s;
+}
+.tree-file-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #ccc;
+}
+.tree-file-btn.active {
+  background: rgba(79, 139, 249, 0.15);
+  color: #7ab3ff;
+  font-weight: 600;
+}
+
+/* Add button */
+.tree-add-btn {
+  display: block;
+  width: 100%;
+  padding: 0.15rem 0.5rem;
+  background: none;
+  border: none;
+  color: #444;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.1s;
+}
+.tree-add-btn:hover {
+  color: #7ab3ff;
+}
+
+/* Create form */
+.tree-create-form {
+  padding: 0.3rem 0.5rem 0.3rem 0;
+}
+
+.tree-create-input {
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  background: #1a1d24;
+  border: 1px solid #2a2d35;
+  border-radius: 4px;
+  color: #ddd;
+  font-size: 0.78rem;
+  outline: none;
+  margin-bottom: 0.25rem;
+}
+.tree-create-input:focus {
+  border-color: #4f8bf9;
+}
+
+.tree-create-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+.tree-create-actions button {
+  padding: 0.15rem 0.4rem;
+  background: #1a1d24;
+  border: 1px solid #2a2d35;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.tree-create-actions button:hover {
+  background: #252830;
+  color: #fff;
+}
