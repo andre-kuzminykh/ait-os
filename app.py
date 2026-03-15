@@ -23,7 +23,6 @@ st.set_page_config(
 # Initialise session state
 # ---------------------------------------------------------------------------
 
-# Workspace tree — default demo data
 DEFAULT_WORKSPACE: dict = {
     "Проекты": {
         "_type": "folder",
@@ -51,42 +50,28 @@ DEFAULT_WORKSPACE: dict = {
 
 if "workspace" not in st.session_state:
     st.session_state.workspace = DEFAULT_WORKSPACE
-
 if "selected_path" not in st.session_state:
     st.session_state.selected_path = None
-
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-
 if "tasks" not in st.session_state:
     st.session_state.tasks = [
         {"id": 1, "title": "Сгенерировать PRD", "status": "done", "ts": "14:02"},
         {"id": 2, "title": "Проанализировать KPI", "status": "running", "ts": "14:15"},
         {"id": 3, "title": "Подготовить отчёт", "status": "pending", "ts": "—"},
     ]
-
 if "next_task_id" not in st.session_state:
     st.session_state.next_task_id = 4
-
-# Open tabs: list of paths (each path is a list[str])
 if "open_tabs" not in st.session_state:
     st.session_state.open_tabs = []
-
-# Editing mode flag
 if "editing" not in st.session_state:
     st.session_state.editing = False
 
-# Task creation card visibility
-if "show_task_card" not in st.session_state:
-    st.session_state.show_task_card = False
-
-
 # ---------------------------------------------------------------------------
-# Helper: traverse workspace tree by path
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _get_node(path: list[str]) -> dict | None:
-    """Return the node at *path* inside the workspace tree."""
     node = st.session_state.workspace
     for part in path:
         if isinstance(node, dict) and part in node:
@@ -97,7 +82,6 @@ def _get_node(path: list[str]) -> dict | None:
 
 
 def _set_content(path: list[str], content: str):
-    """Update content of a file node."""
     node = st.session_state.workspace
     for part in path[:-1]:
         node = node[part]
@@ -105,7 +89,6 @@ def _set_content(path: list[str], content: str):
 
 
 def _collect_files(node: dict, path: list[str]) -> list[list[str]]:
-    """Return a flat list of all file paths in the workspace tree."""
     results: list[list[str]] = []
     for key, value in node.items():
         if key.startswith("_"):
@@ -119,28 +102,26 @@ def _collect_files(node: dict, path: list[str]) -> list[list[str]]:
 
 
 def _open_file(path: list[str]):
-    """Select a file and add it to open tabs if not already there."""
     st.session_state.selected_path = path
     st.session_state.editing = False
-    path_tuple = tuple(path)
-    if path_tuple not in [tuple(t) for t in st.session_state.open_tabs]:
+    if tuple(path) not in [tuple(t) for t in st.session_state.open_tabs]:
         st.session_state.open_tabs.append(path)
 
 
 # ---------------------------------------------------------------------------
-# CSS — custom layout styling
+# CSS
 # ---------------------------------------------------------------------------
 
 st.markdown("""
 <style>
-/* Global spacing */
-.block-container { padding-top: 1rem !important; padding-bottom: 0 !important; }
+/* Global */
+.block-container { padding-top: 0.8rem !important; padding-bottom: 0 !important; }
 
-/* Sidebar tree items */
+/* Sidebar file buttons */
 div[data-testid="stSidebar"] .stButton > button {
     text-align: left !important;
-    padding: 0.2rem 0.5rem !important;
-    font-size: 0.85rem !important;
+    padding: 0.15rem 0.5rem !important;
+    font-size: 0.82rem !important;
     background: transparent !important;
     border: none !important;
     color: #ccc !important;
@@ -153,87 +134,70 @@ div[data-testid="stSidebar"] .stButton > button:hover {
 }
 
 /* Chat messages */
-.chat-user { background: #1e2a3a; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0.3rem 0; }
-.chat-ai   { background: #1a2520; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0.3rem 0; }
+.chat-user {
+    background: #1e2a3a; border-radius: 8px;
+    padding: 0.5rem 0.7rem; margin: 0.25rem 0;
+    font-size: 0.88rem;
+}
+.chat-ai {
+    background: #1a2520; border-radius: 8px;
+    padding: 0.5rem 0.7rem; margin: 0.25rem 0;
+    font-size: 0.88rem;
+}
 
-/* Task bar */
-.task-bar { display: flex; gap: 0.7rem; overflow-x: auto; padding: 0.4rem 0; }
+/* Tab bar */
+.tab-bar {
+    display: flex; gap: 2px; overflow-x: auto;
+    border-bottom: 2px solid #2a2d35; padding: 0;
+    margin-bottom: 0.6rem; scrollbar-width: thin;
+}
+.tab-item {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.4rem 0.9rem; font-size: 0.8rem;
+    border: 1px solid transparent; border-bottom: none;
+    border-radius: 6px 6px 0 0; cursor: default;
+    background: transparent; color: #666; white-space: nowrap;
+    position: relative; top: 2px; transition: all 0.15s;
+}
+.tab-item.active {
+    background: #1e2128; color: #e0e0e0; font-weight: 600;
+    border-color: #2a2d35;
+}
+.tab-item:not(.active):hover { color: #aaa; background: #16181d; }
+.tab-close {
+    margin-left: 0.35rem; opacity: 0.35; font-size: 0.7rem;
+    cursor: pointer; padding: 0 2px; border-radius: 3px;
+}
+.tab-close:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+/* Task chips */
+.task-bar { display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.3rem 0; }
 .task-chip {
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    padding: 0.3rem 0.7rem; border-radius: 16px; font-size: 0.78rem;
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.6rem; border-radius: 14px; font-size: 0.75rem;
     white-space: nowrap;
 }
 .chip-done    { background: #1a3a2a; color: #6fcf97; }
 .chip-running { background: #2a2a1a; color: #f2c94c; }
 .chip-pending { background: #1a1a2a; color: #828282; }
 
-/* Bottom bar border */
-.bottom-bar { border-top: 1px solid #2a2d35; padding-top: 0.5rem; margin-top: 0.5rem; }
-
-/* Selected sidebar item highlight */
-div[data-testid="stSidebar"] .selected-item > button {
-    background: rgba(79,139,249,0.25) !important;
-    color: #4F8BF9 !important;
-    font-weight: 600 !important;
-}
-
-/* Editor area */
-.editor-header {
-    display: flex; align-items: center; gap: 0.5rem;
-    padding-bottom: 0.5rem; border-bottom: 1px solid #2a2d35;
-    margin-bottom: 0.7rem;
-}
-
-/* Browser-like tabs bar */
-.tab-bar {
-    display: flex; gap: 0; overflow-x: auto; border-bottom: 2px solid #2a2d35;
-    margin-bottom: 0.7rem; padding: 0;
-}
-.tab-item {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    padding: 0.45rem 1rem; font-size: 0.82rem;
-    border: 1px solid #2a2d35; border-bottom: none;
-    border-radius: 6px 6px 0 0; cursor: pointer;
-    background: #15171c; color: #888; white-space: nowrap;
-    margin-right: 2px; position: relative; top: 2px;
-}
-.tab-item.active {
-    background: #1e2128; color: #e0e0e0; font-weight: 600;
-    border-color: #3a3f4b;
-}
-.tab-close {
-    margin-left: 0.4rem; opacity: 0.5; font-size: 0.75rem; cursor: pointer;
-}
-.tab-close:hover { opacity: 1; }
-
-/* Task creation card */
-.task-card {
-    background: #1a1d24; border: 1px solid #2a2d35; border-radius: 8px;
-    padding: 1rem; margin-top: 0.5rem;
-}
-.task-type-pills {
-    display: flex; gap: 0.4rem; margin-bottom: 0.6rem;
-}
-.task-type-pill {
-    padding: 0.3rem 0.8rem; border-radius: 16px; font-size: 0.8rem;
-    border: 1px solid #3a3f4b; background: transparent; color: #888; cursor: pointer;
-}
-.task-type-pill.active {
-    background: #4F8BF9; color: #fff; border-color: #4F8BF9;
+/* Task card compact */
+.task-card-header {
+    font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem;
+    color: #ccc;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
-# SIDEBAR — workspace tree (left panel)
+# SIDEBAR
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
     st.markdown("### 🗂 Workspace")
 
     def _render_tree(node: dict, path: list[str], depth: int = 0):
-        """Recursively render the workspace tree."""
         for key, value in node.items():
             if key.startswith("_"):
                 continue
@@ -243,10 +207,9 @@ with st.sidebar:
 
             if is_folder:
                 prefix = "📁" if depth > 0 else "📂"
-                indent = "&nbsp;" * (depth * 4)
                 st.markdown(
-                    f"<div style='padding:2px 0 2px {depth * 12}px; "
-                    f"font-size:0.85rem; color:#aaa;'>"
+                    f"<div style='padding:2px 0 2px {depth*12}px; "
+                    f"font-size:0.82rem; color:#aaa;'>"
                     f"{prefix} <strong>{key}</strong></div>",
                     unsafe_allow_html=True,
                 )
@@ -257,30 +220,24 @@ with st.sidebar:
                     and "/".join(st.session_state.selected_path) == path_str
                 )
                 icon = "📝" if key.endswith(".md") else "📄"
-                label = f"{icon} {key}"
                 btn_type = "primary" if is_selected else "secondary"
-                if st.button(label, key=f"tree_{path_str}", use_container_width=True, type=btn_type):
+                if st.button(f"{icon} {key}", key=f"tree_{path_str}", use_container_width=True, type=btn_type):
                     _open_file(current_path)
                     st.rerun()
 
     _render_tree(st.session_state.workspace, [])
 
     st.divider()
-
-    # --- Quick actions ---
     st.markdown("#### ➕ Создать")
-    new_item_name = st.text_input("Имя файла / папки", key="new_item_name", label_visibility="collapsed", placeholder="Новый файл.md")
+    new_item_name = st.text_input("Имя", key="new_item_name", label_visibility="collapsed", placeholder="Новый файл.md")
     c1, c2 = st.columns(2)
     with c1:
         if st.button("📄 Файл", use_container_width=True):
             name = st.session_state.new_item_name.strip()
             if name:
                 st.session_state.workspace.setdefault("Документы", {"_type": "folder"})
-                st.session_state.workspace["Документы"][name] = {
-                    "_type": "file",
-                    "content": f"# {name}\n\n",
-                }
-                st.session_state.selected_path = ["Документы", name]
+                st.session_state.workspace["Документы"][name] = {"_type": "file", "content": f"# {name}\n\n"}
+                _open_file(["Документы", name])
                 st.rerun()
     with c2:
         if st.button("📁 Папку", use_container_width=True):
@@ -291,55 +248,60 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
-# MAIN AREA — centre editor + right AI chat
+# MAIN AREA
 # ---------------------------------------------------------------------------
 
-# Title
 st.markdown(
-    "<h2 style='margin:0 0 0.5rem 0;'>⚙️ AI Business Operating System</h2>",
+    "<h2 style='margin:0 0 0.3rem 0; font-size:1.4rem;'>⚙️ AI Business Operating System</h2>",
     unsafe_allow_html=True,
 )
 
-col_editor, col_chat = st.columns([3, 2], gap="medium")
+col_editor, col_right = st.columns([3, 2], gap="medium")
 
-# ---- Centre: Tabs + Editor / Viewer ------------------------------------------
+# ---- CENTRE: Tabs + Document -------------------------------------------------
 with col_editor:
-    # --- Browser-like tabs ---
+
+    # --- Tab bar (pure HTML) ---
     if st.session_state.open_tabs:
-        tab_cols = st.columns(len(st.session_state.open_tabs) + 1)
+        tabs_html = '<div class="tab-bar">'
         for idx, tab_path in enumerate(st.session_state.open_tabs):
-            with tab_cols[idx]:
-                is_active = (
-                    st.session_state.selected_path is not None
-                    and tuple(st.session_state.selected_path) == tuple(tab_path)
-                )
-                tab_label = tab_path[-1]
-                btn_type = "primary" if is_active else "secondary"
-                c_tab, c_close = st.columns([5, 1])
-                with c_tab:
-                    if st.button(
-                        f"{'**' if is_active else ''}{tab_label}{'**' if is_active else ''}",
-                        key=f"tab_{idx}",
-                        use_container_width=True,
-                        type=btn_type,
-                    ):
-                        st.session_state.selected_path = tab_path
-                        st.session_state.editing = False
-                        st.rerun()
-                with c_close:
-                    if st.button("x", key=f"close_tab_{idx}"):
-                        st.session_state.open_tabs.pop(idx)
-                        if st.session_state.selected_path and tuple(st.session_state.selected_path) == tuple(tab_path):
+            is_active = (
+                st.session_state.selected_path is not None
+                and tuple(st.session_state.selected_path) == tuple(tab_path)
+            )
+            cls = "tab-item active" if is_active else "tab-item"
+            name = tab_path[-1]
+            tabs_html += f'<span class="{cls}">{name}</span>'
+        tabs_html += '</div>'
+        st.markdown(tabs_html, unsafe_allow_html=True)
+
+        # Compact button row for tab switching (hidden labels)
+        num_tabs = len(st.session_state.open_tabs)
+        if num_tabs > 0:
+            btn_cols = st.columns(num_tabs + max(0, 6 - num_tabs))
+            for idx, tab_path in enumerate(st.session_state.open_tabs):
+                with btn_cols[idx]:
+                    is_active = (
+                        st.session_state.selected_path is not None
+                        and tuple(st.session_state.selected_path) == tuple(tab_path)
+                    )
+                    label = tab_path[-1]
+                    if is_active:
+                        if st.button("✕", key=f"close_tab_{idx}", help="Закрыть вкладку"):
+                            st.session_state.open_tabs.pop(idx)
                             if st.session_state.open_tabs:
                                 st.session_state.selected_path = st.session_state.open_tabs[-1]
                             else:
                                 st.session_state.selected_path = None
-                        st.session_state.editing = False
-                        st.rerun()
+                            st.session_state.editing = False
+                            st.rerun()
+                    else:
+                        if st.button(label, key=f"switch_tab_{idx}"):
+                            st.session_state.selected_path = tab_path
+                            st.session_state.editing = False
+                            st.rerun()
 
-        st.markdown("<div style='border-bottom:1px solid #2a2d35; margin-bottom:0.5rem;'></div>", unsafe_allow_html=True)
-
-    # --- Document viewer / editor ---
+    # --- Document view / edit ---
     if st.session_state.selected_path:
         node = _get_node(st.session_state.selected_path)
         file_name = st.session_state.selected_path[-1]
@@ -348,114 +310,77 @@ with col_editor:
             content = node.get("content", "")
 
             if st.session_state.editing:
-                # --- Edit mode ---
-                st.markdown(
-                    f"<div class='editor-header'>"
-                    f"<span style='font-size:1.1rem;'>✏️</span>"
-                    f"<strong>Редактирование: {file_name}</strong>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
                 new_content = st.text_area(
-                    "Редактор",
+                    f"Редактирование: {file_name}",
                     value=content,
                     height=400,
                     key=f"editor_{'/'.join(st.session_state.selected_path)}",
-                    label_visibility="collapsed",
                 )
-                ec1, ec2 = st.columns(2)
+                ec1, ec2, ec3 = st.columns([2, 2, 6])
                 with ec1:
-                    if st.button("💾 Сохранить", key="save_btn", use_container_width=True, type="primary"):
+                    if st.button("💾 Сохранить", key="save_btn", type="primary", use_container_width=True):
                         _set_content(st.session_state.selected_path, new_content)
                         st.session_state.editing = False
-                        st.success("Сохранено!")
                         st.rerun()
                 with ec2:
-                    if st.button("Отмена", key="cancel_edit_btn", use_container_width=True):
+                    if st.button("Отмена", key="cancel_btn", use_container_width=True):
                         st.session_state.editing = False
                         st.rerun()
             else:
-                # --- View mode with edit button ---
-                hdr1, hdr2 = st.columns([5, 1])
-                with hdr1:
-                    st.markdown(
-                        f"<div class='editor-header'>"
-                        f"<span style='font-size:1.1rem;'>📝</span>"
-                        f"<strong>{file_name}</strong>"
-                        f"<span style='color:#666; font-size:0.8rem;'>— "
-                        f"{'/'.join(st.session_state.selected_path[:-1])}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                with hdr2:
-                    if st.button("✏️ Редактировать", key="edit_btn", use_container_width=True):
-                        st.session_state.editing = True
-                        st.rerun()
-
+                if st.button("✏️ Редактировать", key="edit_btn"):
+                    st.session_state.editing = True
+                    st.rerun()
                 st.markdown(content)
         else:
             st.info("Выберите файл в дереве слева.")
     else:
-        # Welcome screen
         st.markdown("""
-        ### 👋 Добро пожаловать в Workspace OS
+### 👋 Workspace OS
 
-        **Выберите файл** в дереве слева, чтобы начать работу.
+**Выберите файл** слева, чтобы начать работу.
 
-        Возможности:
-        - 📁 **Навигация** по проектам и документам
-        - ✏️ **Редактирование** содержимого
-        - 🤖 **AI-ассистент** для генерации и анализа
-        - 📊 **Отслеживание задач** в реальном времени
+- 📁 Навигация по проектам
+- ✏️ Редактирование документов
+- 🤖 AI-ассистент
+- 📊 Отслеживание задач
         """)
 
-# ---- Right: AI Chat -----------------------------------------------------------
-with col_chat:
+
+# ---- RIGHT: Chat + Task card -------------------------------------------------
+with col_right:
     st.markdown("#### 🤖 AI-ассистент")
 
-    # Context indicator
     if st.session_state.selected_path:
-        ctx_label = st.session_state.selected_path[-1]
-        st.caption(f"Контекст: **{ctx_label}**")
+        st.caption(f"Контекст: **{st.session_state.selected_path[-1]}**")
     else:
         st.caption("Контекст: *общий*")
 
-    # Chat history display
-    chat_container = st.container(height=380)
+    chat_container = st.container(height=300)
     with chat_container:
         if not st.session_state.chat_history:
             st.markdown(
-                "<div style='color:#666; text-align:center; padding-top:3rem;'>"
+                "<div style='color:#555; text-align:center; padding-top:2rem; font-size:0.85rem;'>"
                 "Начните диалог — задайте вопрос или поставьте задачу.</div>",
                 unsafe_allow_html=True,
             )
         for msg in st.session_state.chat_history:
             css_class = "chat-user" if msg["role"] == "user" else "chat-ai"
             icon = "👤" if msg["role"] == "user" else "🤖"
-            st.markdown(
-                f"<div class='{css_class}'>{icon} {msg['text']}</div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(f"<div class='{css_class}'>{icon} {msg['text']}</div>", unsafe_allow_html=True)
 
-    # Chat input
     user_input = st.chat_input("Задайте вопрос или поставьте задачу…")
     if user_input:
         st.session_state.chat_history.append({"role": "user", "text": user_input})
-
-        # --- Demo AI response (placeholder) ---
         context_note = ""
         if st.session_state.selected_path:
             node = _get_node(st.session_state.selected_path)
             if node and isinstance(node, dict):
                 context_note = f"\n\n*(Контекст: {st.session_state.selected_path[-1]})*"
-
         ai_response = (
-            f"Принято! Я обработаю ваш запрос: «{user_input}».{context_note}\n\n"
-            f"_Подключите API-ключ для полноценных ответов от LLM._"
+            f"Принято! Я обработаю запрос: «{user_input}».{context_note}\n\n"
+            f"_Подключите API-ключ для полноценных ответов._"
         )
         st.session_state.chat_history.append({"role": "ai", "text": ai_response})
-
-        # Add a demo task
         st.session_state.tasks.append({
             "id": st.session_state.next_task_id,
             "title": user_input[:50] + ("…" if len(user_input) > 50 else ""),
@@ -465,106 +390,37 @@ with col_chat:
         st.session_state.next_task_id += 1
         st.rerun()
 
+    # --- Task creation card (compact, right under chat) ---
+    st.markdown("---")
+    st.markdown('<div class="task-card-header">➕ Новая задача</div>', unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# BOTTOM BAR — task pipeline / status
-# ---------------------------------------------------------------------------
-
-st.divider()
-
-bcol_label, bcol_tasks = st.columns([1, 6])
-
-with bcol_label:
-    st.markdown("**📊 Задачи**")
-
-status_icons = {"done": "✅", "running": "⏳", "pending": "⏸️"}
-status_classes = {"done": "chip-done", "running": "chip-running", "pending": "chip-pending"}
-
-with bcol_tasks:
-    # Render task chips as HTML
-    chips_html = '<div class="task-bar">'
-
-    for task in st.session_state.tasks:
-        icon = status_icons.get(task["status"], "❓")
-        cls = status_classes.get(task["status"], "chip-pending")
-        chips_html += (
-            f'<span class="task-chip {cls}">'
-            f'{icon} {task["title"]} '
-            f'<span style="opacity:0.6;">({task["ts"]})</span>'
-            f'</span>'
-        )
-    chips_html += '</div>'
-    st.markdown(chips_html, unsafe_allow_html=True)
-
-# ---------------------------------------------------------------------------
-# TASK CREATION CARD
-# ---------------------------------------------------------------------------
-
-with st.expander("➕ Создать задачу", expanded=st.session_state.show_task_card):
-    # --- Task type switcher: MCP / LLM / Code ---
     task_type = st.radio(
-        "Тип задачи",
-        ["🔌 MCP-вызов", "🤖 LLM-вызов", "💻 Код"],
-        horizontal=True,
-        key="task_type_radio",
-        label_visibility="collapsed",
+        "Тип", ["🔌 MCP", "🤖 LLM", "💻 Code"],
+        horizontal=True, key="task_type_radio", label_visibility="collapsed",
     )
 
-    # --- Prompt ---
-    task_prompt = st.text_area(
-        "Промт / описание задачи",
-        height=80,
-        key="task_prompt",
-        placeholder="Опишите что нужно сделать…",
-    )
+    task_prompt = st.text_input("Промт", key="task_prompt", placeholder="Опишите задачу…", label_visibility="collapsed")
 
-    tc1, tc2 = st.columns(2)
-
-    # --- File selector (from workspace tree) ---
-    with tc1:
+    tf1, tf2 = st.columns(2)
+    with tf1:
         all_files = _collect_files(st.session_state.workspace, [])
-        file_options = ["/".join(fp) for fp in all_files]
-        selected_file = st.selectbox(
-            "📄 Файл (контекст)",
-            options=["— нет —"] + file_options,
-            key="task_file_select",
-        )
+        file_options = ["— нет —"] + ["/".join(fp) for fp in all_files]
+        selected_file = st.selectbox("📄 Файл", options=file_options, key="task_file", label_visibility="collapsed")
+    with tf2:
+        if task_type == "🔌 MCP":
+            tool_opts = ["file_read", "file_write", "web_search", "code_execute", "database_query", "api_call"]
+            selected_tool = st.selectbox("🔧 Инструмент", options=tool_opts, key="task_tool", label_visibility="collapsed")
+        elif task_type == "🤖 LLM":
+            llm_opts = ["Claude Opus", "Claude Sonnet", "Claude Haiku", "GPT-4o", "Gemini Pro"]
+            selected_tool = st.selectbox("🧠 Модель", options=llm_opts, key="task_llm", label_visibility="collapsed")
+        else:
+            lang_opts = ["Python", "JavaScript", "TypeScript", "Bash", "SQL"]
+            selected_tool = st.selectbox("💻 Язык", options=lang_opts, key="task_lang", label_visibility="collapsed")
 
-    # --- Tool / LLM selector ---
-    with tc2:
-        if task_type == "🔌 MCP-вызов":
-            tool_options = [
-                "file_read", "file_write", "web_search",
-                "code_execute", "database_query", "api_call",
-            ]
-            selected_tool = st.selectbox(
-                "🔧 MCP-инструмент",
-                options=tool_options,
-                key="task_tool_select",
-            )
-        elif task_type == "🤖 LLM-вызов":
-            llm_options = [
-                "Claude Opus", "Claude Sonnet", "Claude Haiku",
-                "GPT-4o", "Gemini Pro",
-            ]
-            selected_tool = st.selectbox(
-                "🧠 Модель LLM",
-                options=llm_options,
-                key="task_llm_select",
-            )
-        else:  # Code
-            lang_options = ["Python", "JavaScript", "TypeScript", "Bash", "SQL"]
-            selected_tool = st.selectbox(
-                "💻 Язык",
-                options=lang_options,
-                key="task_lang_select",
-            )
-
-    # --- Submit ---
-    if st.button("🚀 Запустить задачу", use_container_width=True, type="primary"):
+    if st.button("🚀 Запустить", key="run_task_btn", type="primary", use_container_width=True):
         if task_prompt.strip():
-            type_label = {"🔌 MCP-вызов": "MCP", "🤖 LLM-вызов": "LLM", "💻 Код": "Code"}
-            title = f"[{type_label.get(task_type, '?')}] {task_prompt.strip()[:45]}"
+            type_map = {"🔌 MCP": "MCP", "🤖 LLM": "LLM", "💻 Code": "Code"}
+            title = f"[{type_map.get(task_type, '?')}] {task_prompt.strip()[:40]}"
             st.session_state.tasks.append({
                 "id": st.session_state.next_task_id,
                 "title": title,
@@ -580,25 +436,39 @@ with st.expander("➕ Создать задачу", expanded=st.session_state.sh
         else:
             st.warning("Введите описание задачи.")
 
-# Task list management
+
+# ---------------------------------------------------------------------------
+# BOTTOM BAR — task pipeline
+# ---------------------------------------------------------------------------
+
+st.divider()
+
+status_icons = {"done": "✅", "running": "⏳", "pending": "⏸️"}
+status_classes = {"done": "chip-done", "running": "chip-running", "pending": "chip-pending"}
+
+chips_html = '<div class="task-bar">'
+for task in st.session_state.tasks:
+    icon = status_icons.get(task["status"], "❓")
+    cls = status_classes.get(task["status"], "chip-pending")
+    chips_html += (
+        f'<span class="task-chip {cls}">{icon} {task["title"]} '
+        f'<span style="opacity:0.5;">({task["ts"]})</span></span>'
+    )
+chips_html += '</div>'
+st.markdown(chips_html, unsafe_allow_html=True)
+
 with st.expander("🔧 Управление задачами"):
-    status_icons = {"done": "✅", "running": "⏳", "pending": "⏸️"}
     if st.session_state.tasks:
         for i, task in enumerate(st.session_state.tasks):
-            tc1, tc2, tc3 = st.columns([4, 1, 1])
+            tc1, tc2, tc3 = st.columns([5, 1, 1])
             with tc1:
                 icon = status_icons.get(task["status"], "❓")
-                type_badge = ""
-                if "type" in task:
-                    type_badge = f" `{task.get('type', '')}`"
-                st.markdown(f"{icon} **{task['title']}**{type_badge} `{task['ts']}`")
+                st.markdown(f"{icon} **{task['title']}** `{task['ts']}`")
             with tc2:
                 new_status = st.selectbox(
-                    "Статус",
-                    ["pending", "running", "done"],
+                    "s", ["pending", "running", "done"],
                     index=["pending", "running", "done"].index(task["status"]),
-                    key=f"task_status_{task['id']}",
-                    label_visibility="collapsed",
+                    key=f"task_status_{task['id']}", label_visibility="collapsed",
                 )
                 if new_status != task["status"]:
                     st.session_state.tasks[i]["status"] = new_status
