@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} — AS-IS | Andre AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --text: #1a1a2e;
+            --primary: #2563eb;
+            --secondary: #f1f5f9;
+            --border: #e2e8f0;
+            --accent: #7c3aed;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: var(--text);
+            background: var(--bg);
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        header {
+            border-bottom: 3px solid var(--primary);
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        header .brand {
+            font-size: 0.85rem;
+            color: var(--primary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            color: #64748b;
+            font-size: 0.95rem;
+        }
+        section {
+            margin-bottom: 2rem;
+        }
+        h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--primary);
+            border-left: 4px solid var(--primary);
+            padding-left: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .section-content {
+            background: var(--secondary);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }
+        .section-content ul {
+            padding-left: 1.25rem;
+        }
+        .section-content li {
+            margin-bottom: 0.35rem;
+        }
+        .section-content table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .section-content th, .section-content td {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .section-content th {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #64748b;
+            text-transform: uppercase;
+        }
+        .diagram-section {
+            background: var(--secondary);
+            border-radius: 8px;
+            padding: 1.5rem;
+            overflow-x: auto;
+        }
+        .diagram-section .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+        .pain-points .section-content {
+            background: #fef2f2;
+            border-left: 4px solid #ef4444;
+        }
+        .automation .section-content {
+            background: #f0fdf4;
+            border-left: 4px solid #22c55e;
+        }
+        footer {
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+        @media (max-width: 640px) {
+            .container { padding: 1rem; }
+            h1 { font-size: 1.35rem; }
+            .section-content { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="brand">Andre AI</div>
+            <h1>{{ title }}</h1>
+            <div class="subtitle">Описание текущего процесса (AS-IS)</div>
+        </header>
+
+        {% if goal %}
+        <section>
+            <h2>Цель процесса</h2>
+            <div class="section-content">
+                <p>{{ goal }}</p>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if summary %}
+        <section>
+            <h2>Краткое описание</h2>
+            <div class="section-content">
+                <p>{{ summary }}</p>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if triggers_html %}
+        <section>
+            <h2>Триггеры</h2>
+            <div class="section-content">{{ triggers_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if inputs_html %}
+        <section>
+            <h2>Входные данные</h2>
+            <div class="section-content">{{ inputs_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if outputs_html %}
+        <section>
+            <h2>Выходные данные</h2>
+            <div class="section-content">{{ outputs_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if roles_html %}
+        <section>
+            <h2>Роли и ответственности</h2>
+            <div class="section-content">{{ roles_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if systems_html %}
+        <section>
+            <h2>Системы</h2>
+            <div class="section-content">{{ systems_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if artifacts_html %}
+        <section>
+            <h2>Артефакты</h2>
+            <div class="section-content">{{ artifacts_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if stages_html %}
+        <section>
+            <h2>Этапы процесса</h2>
+            <div class="section-content">{{ stages_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if mermaid_code %}
+        <section>
+            <h2>Диаграмма процесса</h2>
+            <div class="diagram-section">
+                <div class="mermaid">
+{{ mermaid_code }}
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if metrics_html %}
+        <section>
+            <h2>Метрики</h2>
+            <div class="section-content">{{ metrics_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if pain_points_html %}
+        <section class="pain-points">
+            <h2>Болевые точки</h2>
+            <div class="section-content">{{ pain_points_html }}</div>
+        </section>
+        {% endif %}
+
+        {% if automation_candidates_html %}
+        <section class="automation">
+            <h2>Потенциал автоматизации</h2>
+            <div class="section-content">{{ automation_candidates_html }}</div>
+        </section>
+        {% endif %}
+
+        <footer>
+            Сгенерировано с помощью Andre AI
+        </footer>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+</body>
+</html>
