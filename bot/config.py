@@ -20,8 +20,8 @@ PAGES_BASE_URL: str = os.environ.get("PAGES_BASE_URL", "http://localhost:8080/pa
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
-# LLM settings — OpenAI o3
-LLM_MODEL: str = os.environ.get("LLM_MODEL", "o3")
+# LLM settings — OpenAI GPT-5.4
+LLM_MODEL: str = os.environ.get("LLM_MODEL", "gpt-5.4")
 LLM_MAX_TOKENS: int = int(os.environ.get("LLM_MAX_TOKENS", "16000"))
 
 # Completeness threshold (0.0 – 1.0) to trigger AS-IS generation
