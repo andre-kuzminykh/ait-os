@@ -1,5 +1,7 @@
 """Inline button callback dispatcher and chat context management."""
 
+from __future__ import annotations
+
 import logging
 
 from telegram import Update

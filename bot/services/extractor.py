@@ -1,5 +1,7 @@
 """AS-IS model extraction from raw user inputs (LLM Call 1)."""
 
+from __future__ import annotations
+
 import json
 import logging
 
