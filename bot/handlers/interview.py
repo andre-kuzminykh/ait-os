@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from bot.config import COMPLETENESS_THRESHOLD
 from bot.database import async_session
-from bot.handlers.progress import delete_messages, send_progress, typewriter_send
+from bot.handlers.progress import delete_messages, send_progress, send_step, typewriter_send
 from bot.models import AsIsModel, InterviewSession, Process, RawInput
 from bot.services.extractor import extract_asis_model
 from bot.services.gap_detector import detect_gaps
@@ -62,7 +62,11 @@ async def handle_text_message(
         await db.commit()
 
     # Send progress message, delete user's message
-    progress_id = await send_progress(bot, chat_id, "⏳ Записал ввод. Анализирую...")
+    progress_id = await send_step(
+        bot, chat_id, 0, 2,
+        "⏳ Записал ввод",
+        "Сохраняю текст и начинаю анализ...",
+    )
     await delete_messages(bot, chat_id, [user_msg_id])
 
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
@@ -90,7 +94,11 @@ async def handle_voice_message(
     user_msg_id = update.message.message_id
 
     # Progress: transcribing
-    progress_id = await send_progress(bot, chat_id, "🎤 Получил аудио. Транскрибирую...")
+    progress_id = await send_step(
+        bot, chat_id, 0, 3,
+        "🎤 Получил аудио",
+        "Отправляю на распознавание речи (Whisper API)...",
+    )
     await delete_messages(bot, chat_id, [user_msg_id])
 
     transcript = await transcribe_telegram_voice(bot, voice.file_id)
@@ -104,6 +112,11 @@ async def handle_voice_message(
         return
 
     # Typewriter reveal of transcription
+    progress_id = await send_step(
+        bot, chat_id, 1, 3,
+        "📝 Распознаю текст...",
+        "Обрабатываю результат транскрипции...",
+    )
     progress_id = await typewriter_send(
         bot, chat_id, transcript, prefix="📝 Распознано:\n", message_id=progress_id,
     )
@@ -126,7 +139,11 @@ async def handle_voice_message(
         await db.commit()
 
     # Continue to analysis
-    await send_progress(bot, chat_id, "⏳ Анализирую...", progress_id)
+    progress_id = await send_step(
+        bot, chat_id, 2, 3,
+        "⏳ Анализирую...",
+        "Передаю текст в LLM для извлечения структуры процесса...",
+    )
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
 
 
@@ -200,10 +217,10 @@ async def _process_input(
             )
 
     # LLM Call 1: Extract/update AS-IS model
-    progress_id = await send_progress(
-        bot, chat_id,
-        "⏳ Извлекаю структуру процесса... (шаг 1/2)",
-        progress_id,
+    progress_id = await send_step(
+        bot, chat_id, 1, 2,
+        "⏳ Извлекаю структуру процесса",
+        "LLM анализирует текст → цель, этапы, роли, системы, артефакты, метрики, боли...",
     )
 
     model_data = await extract_asis_model(
@@ -219,10 +236,10 @@ async def _process_input(
         return
 
     # LLM Call 2: Detect gaps
-    progress_id = await send_progress(
-        bot, chat_id,
-        "⏳ Оцениваю полноту описания... (шаг 2/2)",
-        progress_id,
+    progress_id = await send_step(
+        bot, chat_id, 2, 2,
+        "⏳ Оцениваю полноту описания",
+        "LLM проверяет: все ли роли, системы, метрики, SLA, точки передачи указаны...",
     )
 
     gap_result = await detect_gaps(process.name, model_data)
@@ -285,11 +302,10 @@ async def _process_input(
             session.state = SessionStatus.COMPLETED
             await db.commit()
 
-            progress_id = await send_progress(
-                bot, chat_id,
-                f"✅ Полнота описания: {int(completeness * 100)}%\n"
-                "Достаточно данных! Генерирую AS-IS страницу...",
-                progress_id,
+            progress_id = await send_step(
+                bot, chat_id, 2, 2,
+                f"✅ Полнота описания: {int(completeness * 100)}%",
+                "Достаточно данных! Перехожу к генерации AS-IS страницы...",
             )
 
             from bot.handlers.clarification import trigger_asis_generation

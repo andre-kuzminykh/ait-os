@@ -7,6 +7,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Animated progress bar frames
+_BAR_FRAMES = [
+    "░░░░░░░░░░",
+    "█░░░░░░░░░",
+    "██░░░░░░░░",
+    "███░░░░░░░",
+    "████░░░░░░",
+    "█████░░░░░",
+    "██████░░░░",
+    "███████░░░",
+    "████████░░",
+    "█████████░",
+    "██████████",
+]
+
+
+def loading_bar(step: int, total: int) -> str:
+    """Return a text progress bar for step/total."""
+    if total <= 0:
+        return _BAR_FRAMES[-1]
+    idx = min(int(step / total * (len(_BAR_FRAMES) - 1)), len(_BAR_FRAMES) - 1)
+    pct = min(int(step / total * 100), 100)
+    return f"{_BAR_FRAMES[idx]}  {pct}%"
+
 
 async def send_progress(
     bot, chat_id: int, text: str, message_id: int | None = None,
@@ -29,6 +53,21 @@ async def send_progress(
         chat_id=chat_id, text=text, parse_mode=parse_mode,
     )
     return msg.message_id
+
+
+async def send_step(
+    bot, chat_id: int,
+    step: int, total: int,
+    description: str,
+    detail: str = "",
+    message_id: int | None = None,
+) -> int:
+    """Send a progress step with loading bar + description + detail."""
+    bar = loading_bar(step, total)
+    text = f"{bar}\n\n{description}"
+    if detail:
+        text += f"\n_{detail}_"
+    return await send_progress(bot, chat_id, text, message_id, parse_mode="Markdown")
 
 
 async def typewriter_send(

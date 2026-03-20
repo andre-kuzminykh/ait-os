@@ -10,7 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.database import async_session
-from bot.handlers.progress import delete_messages, send_progress
+from bot.handlers.progress import delete_messages, send_progress, send_step
 from bot.models import (
     AsIsModel,
     AutomationOpportunity,
@@ -119,7 +119,11 @@ async def handle_gap_answer(
         await db.commit()
 
     # Show progress
-    progress_id = await send_progress(bot, chat_id, "⏳ Записал ответ. Анализирую...")
+    progress_id = await send_step(
+        bot, chat_id, 0, 2,
+        "⏳ Записал ответ",
+        "Добавляю к модели и перезапускаю анализ...",
+    )
 
     from bot.handlers.interview import _process_input
     if session:
@@ -191,25 +195,28 @@ async def trigger_asis_generation(
         model_data = _model_to_dict(asis)
 
     # LLM Call 3: Generate narrative
-    progress_id = await send_progress(
-        bot, chat_id,
-        "📄 Генерирую описание процесса... (шаг 1/4)",
+    progress_id = await send_step(
+        bot, chat_id, 1, 4,
+        "📄 Генерирую описание процесса",
+        "LLM формирует HTML-нарратив: цель, этапы, роли, системы, метрики, боли...",
         progress_id,
     )
     narrative = await generate_narrative(process.name, model_data)
 
     # LLM Call 4: Generate Mermaid
-    progress_id = await send_progress(
-        bot, chat_id,
-        "📊 Генерирую диаграмму процесса... (шаг 2/4)",
+    progress_id = await send_step(
+        bot, chat_id, 2, 4,
+        "📊 Генерирую диаграмму процесса",
+        "LLM строит Mermaid flowchart по этапам и точкам передачи...",
         progress_id,
     )
     mermaid_code = await generate_mermaid(process.name, model_data)
 
     # Publish page
-    progress_id = await send_progress(
-        bot, chat_id,
-        "🌐 Публикую страницу... (шаг 3/4)",
+    progress_id = await send_step(
+        bot, chat_id, 3, 4,
+        "🌐 Публикую страницу",
+        "Собираю HTML из нарратива и диаграммы, сохраняю файл...",
         progress_id,
     )
 
@@ -235,9 +242,10 @@ async def trigger_asis_generation(
         await db.commit()
 
     # LLM Call 5: Generate opportunities
-    progress_id = await send_progress(
-        bot, chat_id,
-        "🔍 Ищу возможности автоматизации... (шаг 4/4)",
+    progress_id = await send_step(
+        bot, chat_id, 4, 4,
+        "🔍 Ищу возможности автоматизации",
+        "LLM анализирует боли и этапы → предлагает AI, интеграции, аналитику...",
         progress_id,
     )
 
