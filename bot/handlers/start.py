@@ -337,18 +337,21 @@ async def handle_new_process_name(
     # Delete tracked messages
     await delete_messages(bot, chat_id, msgs_to_delete)
 
-    # Send interview greeting
+    # Send interview greeting — store as bot_message_id so the first
+    # progress step will edit this message instead of creating a new one.
     greeting = (
         f"👋 Процесс *{name}* создан\\.\n\n"
         "Расскажите, как устроен этот процесс\\.\n"
         "Можно текстом или голосом\\.\n\n"
         "_Я задам уточняющие вопросы позже\\._"
     )
-    await bot.send_message(
+    greeting_msg = await bot.send_message(
         chat_id=chat_id,
         text=greeting,
         parse_mode="MarkdownV2",
     )
+    ctx["bot_message_id"] = greeting_msg.message_id
+    await save_chat_context(chat_id, ctx)
 
 
 async def _upsert_respondent(db, tg_user) -> Respondent:
@@ -404,7 +407,8 @@ async def _start_interview(
         "_Опишите процесс как можете — я задам уточняющие вопросы позже._"
     )
 
-    await update.message.reply_text(greeting, parse_mode="Markdown")
+    greeting_msg = await update.message.reply_text(greeting, parse_mode="Markdown")
+    context_data["bot_message_id"] = greeting_msg.message_id
 
     from bot.handlers.callbacks import save_chat_context
     await save_chat_context(chat_id, context_data)
@@ -450,8 +454,12 @@ async def _resume_session(
         if page and page.html_url:
             status_parts.append(f"AS-IS страница: {page.html_url}")
 
-    msg = "Продолжаем! " + "\n".join(status_parts)
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    text = "Продолжаем! " + "\n".join(status_parts)
+    greeting_msg = await update.message.reply_text(text, parse_mode="Markdown")
+    context_data["bot_message_id"] = greeting_msg.message_id
+    await save_chat_context(chat_id, context_data)
 
     if session.state == SessionStatus.AWAITING_FOLLOWUP_ANSWER:
-        await send_next_gap_question(chat_id, process.id, update)
+        await send_next_gap_question(
+            chat_id, process.id, update, greeting_msg.message_id,
+        )

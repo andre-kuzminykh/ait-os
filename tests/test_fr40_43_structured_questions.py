@@ -1,6 +1,6 @@
-"""Tests for FR-40..FR-47: structured questions, monotonic completeness,
+"""Tests for FR-40..FR-48: structured questions, monotonic completeness,
 single-message editing, separate LLM calls, editable prompts/messages,
-progress bar %, and URL handling."""
+progress bar %, URL handling, and greeting overwrite."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -745,3 +745,86 @@ class TestFR36_CleanChat:
                 found_edit = True
                 break
         assert found_edit, "Bot should edit existing message_id=3000"
+
+
+# ============================================================================
+# FR-48: Greeting message overwritten by first progress step
+# ============================================================================
+
+
+class TestFR48_GreetingOverwrite:
+    """FR-48: 'Process created' greeting is saved as bot_message_id and
+    overwritten by the first progress step."""
+
+    @pytest.mark.asyncio
+    async def test_new_process_greeting_saved_as_bot_message_id(
+        self, db_session, patch_db, seed_company, seed_respondent
+    ):
+        """FR-48.1: handle_new_process_name stores greeting message_id in context."""
+        bot = make_bot_mock()
+
+        from bot.handlers.start import handle_new_process_name
+        from bot.handlers.callbacks import save_chat_context, get_chat_context
+
+        # Set up context as if user clicked "+"
+        await save_chat_context(99999, {
+            "awaiting_process_name": True,
+            "messages_to_delete": [],
+            "telegram_user_id": seed_respondent.telegram_user_id,
+        })
+
+        await handle_new_process_name(
+            bot, 99999, "Тестовый процесс",
+            seed_respondent.telegram_user_id, 42,
+        )
+
+        ctx = await get_chat_context(99999)
+        assert ctx is not None
+        assert "bot_message_id" in ctx, "Greeting message_id must be saved in context"
+        # The bot_message_id should be the message_id returned by send_message
+        assert ctx["bot_message_id"] > 0
+
+    @pytest.mark.asyncio
+    async def test_greeting_overwritten_by_progress(
+        self, db_session, patch_db, seed_process, seed_session
+    ):
+        """FR-48.2: When user sends text, the greeting is edited (not a new message)."""
+        seed_session.state = SessionStatus.AWAITING_INITIAL_RESPONSE
+        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
+        await db_session.commit()
+
+        update, context = make_update(text="Описание процесса", message_id=50)
+
+        # Simulate greeting message already in context
+        from bot.handlers.callbacks import save_chat_context, get_chat_context
+        greeting_msg_id = 2000
+        await save_chat_context(99999, {
+            "session_id": seed_session.id,
+            "process_id": seed_process.id,
+            "bot_message_id": greeting_msg_id,
+        })
+
+        with (
+            patch(
+                "bot.services.extractor.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
+            ),
+            patch(
+                "bot.services.gap_detector.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_GAP_RESULT, ensure_ascii=False),
+            ),
+        ):
+            from bot.handlers.interview import handle_text_message
+            await handle_text_message(update, context)
+
+        # The greeting message (id=2000) must be edited
+        found = False
+        for call in context.bot.edit_message_text.call_args_list:
+            if call[1].get("message_id") == greeting_msg_id:
+                found = True
+                break
+        assert found, (
+            f"Greeting msg {greeting_msg_id} must be edited by first progress step"
+        )

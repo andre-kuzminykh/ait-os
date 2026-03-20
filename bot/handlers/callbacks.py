@@ -211,7 +211,7 @@ async def _handle_continue(
             session.state = SessionStatus.AWAITING_INITIAL_RESPONSE
             await db.commit()
 
-            await bot.send_message(
+            greet = await bot.send_message(
                 chat_id=chat_id,
                 text=(
                     f"▶️ Продолжаем с процессом *{process.name}*\\.\n\n"
@@ -219,6 +219,8 @@ async def _handle_continue(
                 ),
                 parse_mode="MarkdownV2",
             )
+            ctx["bot_message_id"] = greet.message_id
+            await save_chat_context(chat_id, ctx)
         elif process.status in (
             ProcessStatus.CLARIFICATION_IN_PROGRESS,
             ProcessStatus.ASIS_READY,
@@ -231,11 +233,13 @@ async def _handle_continue(
             await send_next_gap_question(chat_id, process_id, bot)
         else:
             await db.commit()
-            await bot.send_message(
+            greet = await bot.send_message(
                 chat_id=chat_id,
                 text=f"▶️ Продолжаем с процессом *{process.name}*\\.",
                 parse_mode="MarkdownV2",
             )
+            ctx["bot_message_id"] = greet.message_id
+            await save_chat_context(chat_id, ctx)
 
 
 async def _handle_resume(
@@ -261,14 +265,16 @@ async def _handle_resume(
             session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
             await db.commit()
 
-    await bot.send_message(
+    greet = await bot.send_message(
         chat_id=chat_id,
         text=f"Продолжаем работу с процессом *{process.name}*.",
         parse_mode="Markdown",
     )
+    ctx["bot_message_id"] = greet.message_id
+    await save_chat_context(chat_id, ctx)
 
     from bot.handlers.clarification import send_next_gap_question
-    await send_next_gap_question(chat_id, process.id, bot)
+    await send_next_gap_question(chat_id, process.id, bot, greet.message_id)
 
 
 async def _handle_answer_prompt(chat_id: int, gap_id: int, bot) -> None:
