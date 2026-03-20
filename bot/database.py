@@ -17,10 +17,21 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 async def init_db():
-    """Create all tables."""
+    """Create all tables and apply lightweight migrations."""
     from bot.models import Base  # noqa: F811
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migrations for columns added after initial schema
+        await _add_column_if_missing(conn, "published_pages", "pdf_path", "VARCHAR(500)")
+
+
+async def _add_column_if_missing(conn, table: str, column: str, col_type: str):
+    """Add a column to an existing table, ignoring if it already exists."""
+    from sqlalchemy import text
+    try:
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+    except Exception:
+        pass  # Column already exists
 
 
 async def get_session() -> AsyncSession:

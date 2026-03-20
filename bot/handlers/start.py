@@ -98,10 +98,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await show_process_list(chat_id, context.bot, tg_user.id)
 
 
+PAGE_SIZE = 5  # Max processes shown per page
+
+
 async def show_process_list(
-    chat_id: int, bot, telegram_user_id: int, message_id: int | None = None,
+    chat_id: int, bot, telegram_user_id: int,
+    message_id: int | None = None, page: int = 0,
 ) -> int:
-    """Show process list with '+' button. Edit existing message or send new."""
+    """Show process list with '+' button and pagination.
+
+    Shows up to PAGE_SIZE processes per page with ← → navigation arrows.
+    """
     async with async_session() as db:
         result = await db.execute(
             select(InterviewSession)
@@ -122,19 +129,66 @@ async def show_process_list(
         if s.process_id not in seen:
             seen[s.process_id] = s
 
+    all_items = list(seen.values())
+    total = len(all_items)
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+
+    # Slice for current page
+    start = page * PAGE_SIZE
+    page_items = all_items[start : start + PAGE_SIZE]
+
     buttons = []
-    for s in seen.values():
+    for s in page_items:
         icon = _STATUS_ICONS.get(s.process.status, "⚪")
         label = f"{icon} {s.process.name}"
         buttons.append(
             [InlineKeyboardButton(label, callback_data=f"view_{s.process.id}")]
         )
 
+    # Pagination row: [⬅️] [N/M] [➡️] — inactive arrows when at bounds
+    if total_pages > 1:
+        # Left arrow: active or inactive
+        if page > 0:
+            left_btn = InlineKeyboardButton("⬅️", callback_data=f"page_{page - 1}")
+        else:
+            left_btn = InlineKeyboardButton("·", callback_data="page_noop")
+
+        # Page indicator
+        center_btn = InlineKeyboardButton(
+            f"{page + 1}/{total_pages}", callback_data="page_noop",
+        )
+
+        # Right arrow: active or inactive
+        if page < total_pages - 1:
+            right_btn = InlineKeyboardButton("➡️", callback_data=f"page_{page + 1}")
+        else:
+            right_btn = InlineKeyboardButton("·", callback_data="page_noop")
+
+        buttons.append([left_btn, center_btn, right_btn])
+
     buttons.append(
         [InlineKeyboardButton("➕ Новый процесс", callback_data="new_process")]
     )
 
-    text = "📋 *Процессы*" if seen else "📋 *Процессы*\n\nПока пусто. Создайте первый процесс!"
+    if seen:
+        text = (
+            "📋 *Ваши процессы*\n\n"
+            "Нажмите на процесс, чтобы просмотреть детали "
+            "или продолжить заполнение.\n"
+            "Нажмите *➕*, чтобы создать новый."
+        )
+    else:
+        text = (
+            "👋 *Добро пожаловать в Andre AI!*\n\n"
+            "Я помогу описать ваш бизнес-процесс, "
+            "создать AS-IS документ и найти точки автоматизации.\n\n"
+            "🔹 Нажмите *➕ Новый процесс* ниже\n"
+            "🔹 Введите название (например: «Онбординг»)\n"
+            "🔹 Опишите процесс текстом или голосом\n"
+            "🔹 Я задам уточняющие вопросы и сгенерирую AS-IS\n\n"
+            "_Начните с создания первого процесса!_"
+        )
     keyboard = InlineKeyboardMarkup(buttons)
 
     if message_id:
@@ -320,18 +374,21 @@ async def handle_new_process_name(
     # Delete tracked messages
     await delete_messages(bot, chat_id, msgs_to_delete)
 
-    # Send interview greeting
+    # Send interview greeting — store as bot_message_id so the first
+    # progress step will edit this message instead of creating a new one.
     greeting = (
         f"👋 Процесс *{name}* создан\\.\n\n"
         "Расскажите, как устроен этот процесс\\.\n"
         "Можно текстом или голосом\\.\n\n"
         "_Я задам уточняющие вопросы позже\\._"
     )
-    await bot.send_message(
+    greeting_msg = await bot.send_message(
         chat_id=chat_id,
         text=greeting,
         parse_mode="MarkdownV2",
     )
+    ctx["bot_message_id"] = greeting_msg.message_id
+    await save_chat_context(chat_id, ctx)
 
 
 async def _upsert_respondent(db, tg_user) -> Respondent:
@@ -387,7 +444,8 @@ async def _start_interview(
         "_Опишите процесс как можете — я задам уточняющие вопросы позже._"
     )
 
-    await update.message.reply_text(greeting, parse_mode="Markdown")
+    greeting_msg = await update.message.reply_text(greeting, parse_mode="Markdown")
+    context_data["bot_message_id"] = greeting_msg.message_id
 
     from bot.handlers.callbacks import save_chat_context
     await save_chat_context(chat_id, context_data)
@@ -433,8 +491,12 @@ async def _resume_session(
         if page and page.html_url:
             status_parts.append(f"AS-IS страница: {page.html_url}")
 
-    msg = "Продолжаем! " + "\n".join(status_parts)
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    text = "Продолжаем! " + "\n".join(status_parts)
+    greeting_msg = await update.message.reply_text(text, parse_mode="Markdown")
+    context_data["bot_message_id"] = greeting_msg.message_id
+    await save_chat_context(chat_id, context_data)
 
     if session.state == SessionStatus.AWAITING_FOLLOWUP_ANSWER:
-        await send_next_gap_question(chat_id, process.id, update)
+        await send_next_gap_question(
+            chat_id, process.id, update, greeting_msg.message_id,
+        )

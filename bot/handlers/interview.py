@@ -9,31 +9,33 @@ from sqlalchemy import select
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import COMPLETENESS_THRESHOLD
 from bot.database import async_session
-from bot.handlers.progress import delete_messages, send_progress, typewriter_send
+from bot.handlers.progress import delete_messages, send_progress, send_step, typewriter_send
 from bot.models import AsIsModel, InterviewSession, Process, RawInput
 from bot.services.extractor import extract_asis_model
-from bot.services.gap_detector import detect_gaps
 from bot.services.transcription import transcribe_telegram_voice
-from bot.states import GapStatus, ProcessStatus, SessionStatus
+from bot.states import ProcessStatus, SessionStatus
+import bot.messages as msg
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Total steps in the whole pipeline: interview(2) + clarification(1) + generation(3) = 6
+# The progress bar always shows step/TOTAL_STEPS.
+# ---------------------------------------------------------------------------
+TOTAL_STEPS = 6
 
 
 async def handle_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle plain text messages during interview."""
-    from bot.handlers.callbacks import get_chat_context
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
 
     chat_id = update.effective_chat.id
     ctx = await get_chat_context(chat_id)
     if not ctx:
-        await update.message.reply_text(
-            "Начните с /start или /new\\_process, чтобы создать процесс.",
-            parse_mode="Markdown",
-        )
+        await update.message.reply_text(msg.NO_CONTEXT, parse_mode="Markdown")
         return
 
     session_id = ctx["session_id"]
@@ -45,6 +47,9 @@ async def handle_text_message(
 
     bot = context.bot
     user_msg_id = update.message.message_id
+
+    # Use the single bot message if stored in context
+    progress_id = ctx.get("bot_message_id")
 
     async with async_session() as db:
         session = await db.get(InterviewSession, session_id)
@@ -61,9 +66,18 @@ async def handle_text_message(
         session.state = SessionStatus.PROCESSING_INPUT
         await db.commit()
 
-    # Send progress message, delete user's message
-    progress_id = await send_progress(bot, chat_id, "⏳ Записал ввод. Анализирую...")
+    # Delete user's message, edit bot's message for progress
     await delete_messages(bot, chat_id, [user_msg_id])
+
+    progress_id = await send_step(
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.INPUT_SAVED, msg.INPUT_SAVED_DETAIL,
+        progress_id,
+    )
+
+    # Store the bot message id in context
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
 
@@ -72,7 +86,7 @@ async def handle_voice_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle voice notes and audio files."""
-    from bot.handlers.callbacks import get_chat_context
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
 
     chat_id = update.effective_chat.id
     ctx = await get_chat_context(chat_id)
@@ -89,23 +103,36 @@ async def handle_voice_message(
     bot = context.bot
     user_msg_id = update.message.message_id
 
-    # Progress: transcribing
-    progress_id = await send_progress(bot, chat_id, "🎤 Получил аудио. Транскрибирую...")
+    # Use the single bot message if stored in context
+    progress_id = ctx.get("bot_message_id")
+
+    # Delete user message, show progress in bot message
     await delete_messages(bot, chat_id, [user_msg_id])
+
+    progress_id = await send_step(
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.VOICE_RECEIVED, msg.VOICE_RECEIVED_DETAIL,
+        progress_id,
+    )
+
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
     transcript = await transcribe_telegram_voice(bot, voice.file_id)
 
     if not transcript:
-        await send_progress(
-            bot, chat_id,
-            "❌ Не удалось распознать аудио. Попробуйте отправить текстом.",
-            progress_id,
-        )
+        await send_progress(bot, chat_id, msg.VOICE_FAILED, progress_id)
         return
 
     # Typewriter reveal of transcription
+    progress_id = await send_step(
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.VOICE_TRANSCRIBING, msg.VOICE_TRANSCRIBING_DETAIL,
+        progress_id,
+    )
     progress_id = await typewriter_send(
-        bot, chat_id, transcript, prefix="📝 Распознано:\n", message_id=progress_id,
+        bot, chat_id, transcript,
+        prefix=msg.VOICE_TRANSCRIPT_PREFIX, message_id=progress_id,
     )
 
     async with async_session() as db:
@@ -126,7 +153,11 @@ async def handle_voice_message(
         await db.commit()
 
     # Continue to analysis
-    await send_progress(bot, chat_id, "⏳ Анализирую...", progress_id)
+    progress_id = await send_step(
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.ANALYZING, msg.ANALYZING_DETAIL,
+        progress_id,
+    )
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
 
 
@@ -147,9 +178,7 @@ async def handle_document(
 
     mime = doc.mime_type or ""
     if not mime.startswith("audio/"):
-        await update.message.reply_text(
-            "Пока поддерживаются только аудиофайлы и голосовые сообщения."
-        )
+        await update.message.reply_text(msg.AUDIO_ONLY)
         return
 
     # Treat as voice
@@ -161,10 +190,17 @@ async def _process_input(
     bot, chat_id: int, process_id: int, session_id: int,
     progress_id: int | None = None,
 ) -> None:
-    """Extract AS-IS model, detect gaps, and decide next action.
+    """Extract AS-IS model, then always start clarification Q&A.
 
     Shows step-by-step progress by editing a single message.
+    Progress bar goes from step 1..TOTAL_STEPS (6) where:
+      step 1 = input saved
+      step 2 = extracting structure
+      step 3 = clarification questions
+      step 4..6 = generation (handled in clarification.py)
     """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
     async with async_session() as db:
         process = await db.get(Process, process_id)
         session = await db.get(InterviewSession, session_id)
@@ -199,10 +235,10 @@ async def _process_input(
                 _model_to_dict(existing), ensure_ascii=False
             )
 
-    # LLM Call 1: Extract/update AS-IS model
-    progress_id = await send_progress(
-        bot, chat_id,
-        "⏳ Извлекаю структуру процесса... (шаг 1/2)",
+    # LLM Call 1: Extract/update AS-IS model  (step 2 of 6)
+    progress_id = await send_step(
+        bot, chat_id, 2, TOTAL_STEPS,
+        msg.EXTRACTING_STRUCTURE, msg.EXTRACTING_STRUCTURE_DETAIL,
         progress_id,
     )
 
@@ -211,26 +247,11 @@ async def _process_input(
     )
 
     if not model_data:
-        await send_progress(
-            bot, chat_id,
-            "❌ Не удалось проанализировать ответ. Попробуйте описать подробнее.",
-            progress_id,
-        )
+        await send_progress(bot, chat_id, msg.ANALYSIS_FAILED, progress_id)
         return
 
-    # LLM Call 2: Detect gaps
-    progress_id = await send_progress(
-        bot, chat_id,
-        "⏳ Оцениваю полноту описания... (шаг 2/2)",
-        progress_id,
-    )
-
-    gap_result = await detect_gaps(process.name, model_data)
-    completeness = gap_result.get("completeness_score", 0.0)
-    gaps = gap_result.get("gaps", [])
-
+    # Save/update AS-IS model
     async with async_session() as db:
-        # Save/update AS-IS model
         result = await db.execute(
             select(AsIsModel).where(AsIsModel.process_id == process_id)
         )
@@ -253,65 +274,26 @@ async def _process_input(
         asis.metrics = json.dumps(model_data.get("metrics", []), ensure_ascii=False)
         asis.pain_points = json.dumps(model_data.get("pain_points", []), ensure_ascii=False)
         asis.handoffs = json.dumps(model_data.get("handoffs", []), ensure_ascii=False)
-        asis.completeness_score = completeness
-
-        # Save new gaps
-        from bot.models import Gap
-        from bot.states import GapFieldType
-
-        for g in gaps:
-            field_type_str = g.get("field_type", "")
-            try:
-                ft = GapFieldType(field_type_str)
-            except ValueError:
-                ft = GapFieldType.PAIN_POINTS
-
-            gap = Gap(
-                process_id=process_id,
-                stage_id=g.get("stage_id"),
-                field_type=ft,
-                question_text=g.get("question", ""),
-                confidence_score=g.get("confidence", 0.5),
-                status=GapStatus.PENDING,
-            )
-            db.add(gap)
 
         process = await db.get(Process, process_id)
         session = await db.get(InterviewSession, session_id)
 
-        if completeness >= COMPLETENESS_THRESHOLD or not gaps:
-            # Ready for AS-IS generation
-            process.status = ProcessStatus.ASIS_READY
-            session.state = SessionStatus.COMPLETED
-            await db.commit()
+        # Always go to clarification — LLM decides which questions to ask
+        process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
+        session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
+        await db.commit()
 
-            progress_id = await send_progress(
-                bot, chat_id,
-                f"✅ Полнота описания: {int(completeness * 100)}%\n"
-                "Достаточно данных! Генерирую AS-IS страницу...",
-                progress_id,
-            )
+    # Store bot_message_id so clarification edits the same message
+    ctx = await get_chat_context(chat_id) or {}
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
-            from bot.handlers.clarification import trigger_asis_generation
-            await trigger_asis_generation(
-                chat_id, process_id, bot, progress_id
-            )
-        else:
-            # Need clarification
-            process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
-            session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
-            await db.commit()
-
-            # Delete progress, show gap question
-            await delete_messages(bot, chat_id, [progress_id] if progress_id else [])
-
-            await bot.send_message(
-                chat_id=chat_id,
-                text=f"📊 Полнота: {int(completeness * 100)}%. Задам уточняющие вопросы.",
-            )
-
-            from bot.handlers.clarification import send_next_gap_question
-            await send_next_gap_question(chat_id, process_id, bot)
+    # Start 5-question clarification flow (step 3 of 6)
+    # LLM generates questions; if none needed, proceeds directly to generation
+    from bot.handlers.clarification import start_clarification_flow
+    await start_clarification_flow(
+        chat_id, process_id, bot, progress_id,
+    )
 
 
 def _model_to_dict(m: AsIsModel) -> dict:

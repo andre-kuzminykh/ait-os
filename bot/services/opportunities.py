@@ -5,36 +5,12 @@ from __future__ import annotations
 import json
 import logging
 
+from bot.prompts import load_prompt
 from bot.services.llm import chat
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-Ты — консультант по цифровой трансформации. \
-Тебе дана модель текущего бизнес-процесса AS-IS. \
-Проанализируй болевые точки, ручные операции, узкие места, \
-передачи между этапами и предложи конкретные возможности автоматизации.
-
-Верни ТОЛЬКО валидный JSON (без markdown-обёртки):
-{
-  "opportunities": [
-    {
-      "title": "Краткое название возможности",
-      "stage_id": "stage_1 или null",
-      "type": "ai|rule_based|integration|analytics|monitoring",
-      "problem": "Какую проблему решает",
-      "description": "Что именно можно автоматизировать",
-      "expected_benefit": "Ожидаемый эффект"
-    }
-  ]
-}
-
-Правила:
-- Каждая возможность должна быть понятна бизнес-пользователю.
-- Не дублируй похожие возможности.
-- Приоритизируй по потенциальному эффекту.
-- Минимум 2, максимум 8 возможностей.\
-"""
+SYSTEM_PROMPT = load_prompt("opportunities")
 
 
 async def generate_opportunities(process_name: str, asis_model: dict) -> list[dict]:

@@ -71,6 +71,19 @@ async def callback_handler(
             from bot.handlers.start import show_process_list
             await show_process_list(chat_id, bot, tg_user_id, message_id)
 
+    elif data.startswith("page_") and data != "page_noop":
+        page_num = int(data.split("_", 1)[1])
+        ctx = await get_chat_context(chat_id) or {}
+        tg_user_id = ctx.get("telegram_user_id")
+        if not tg_user_id:
+            tg_user_id = update.effective_user.id if update.effective_user else None
+        if tg_user_id:
+            from bot.handlers.start import show_process_list
+            await show_process_list(chat_id, bot, tg_user_id, message_id, page=page_num)
+
+    elif data == "page_noop":
+        pass  # No-op for page indicator button
+
     elif data.startswith("view_"):
         process_id = int(data.split("_", 1)[1])
         ctx = await get_chat_context(chat_id) or {}
@@ -90,6 +103,12 @@ async def callback_handler(
         session_id = int(data.split("_", 1)[1])
         await _handle_resume(chat_id, session_id, update, bot)
 
+    elif data == "skip_clarification":
+        from bot.handlers.clarification import handle_clarification_skip
+        await handle_clarification_skip(chat_id, bot, message_id)
+
+    # ---- Legacy gap flow (kept for backward compatibility) ----
+
     elif data.startswith("answer_"):
         gap_id = int(data.split("_", 1)[1])
         await _handle_answer_prompt(chat_id, gap_id, bot)
@@ -97,7 +116,7 @@ async def callback_handler(
     elif data.startswith("skip_"):
         gap_id = int(data.split("_", 1)[1])
         from bot.handlers.clarification import handle_gap_skip
-        await handle_gap_skip(chat_id, gap_id, bot)
+        await handle_gap_skip(chat_id, gap_id, bot, message_id)
 
     elif data.startswith("pause_"):
         process_id = int(data.split("_", 1)[1])
@@ -108,6 +127,16 @@ async def callback_handler(
         process_id = int(data.split("_", 2)[2])
         from bot.handlers.opportunities import send_next_opportunity
         await send_next_opportunity(chat_id, process_id, bot)
+
+    elif data.startswith("opp_toggle_"):
+        opp_id = int(data.split("_", 2)[2])
+        from bot.handlers.opportunities import handle_opportunity_toggle
+        await handle_opportunity_toggle(chat_id, opp_id, bot, message_id)
+
+    elif data.startswith("opp_proceed_"):
+        process_id = int(data.split("_", 2)[2])
+        from bot.handlers.opportunities import handle_opportunity_proceed
+        await handle_opportunity_proceed(chat_id, process_id, bot, message_id)
 
     elif data.startswith("opp_select_"):
         opp_id = int(data.split("_", 2)[2])
@@ -211,7 +240,7 @@ async def _handle_continue(
             session.state = SessionStatus.AWAITING_INITIAL_RESPONSE
             await db.commit()
 
-            await bot.send_message(
+            greet = await bot.send_message(
                 chat_id=chat_id,
                 text=(
                     f"▶️ Продолжаем с процессом *{process.name}*\\.\n\n"
@@ -219,6 +248,8 @@ async def _handle_continue(
                 ),
                 parse_mode="MarkdownV2",
             )
+            ctx["bot_message_id"] = greet.message_id
+            await save_chat_context(chat_id, ctx)
         elif process.status in (
             ProcessStatus.CLARIFICATION_IN_PROGRESS,
             ProcessStatus.ASIS_READY,
@@ -231,11 +262,13 @@ async def _handle_continue(
             await send_next_gap_question(chat_id, process_id, bot)
         else:
             await db.commit()
-            await bot.send_message(
+            greet = await bot.send_message(
                 chat_id=chat_id,
                 text=f"▶️ Продолжаем с процессом *{process.name}*\\.",
                 parse_mode="MarkdownV2",
             )
+            ctx["bot_message_id"] = greet.message_id
+            await save_chat_context(chat_id, ctx)
 
 
 async def _handle_resume(
@@ -261,23 +294,42 @@ async def _handle_resume(
             session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
             await db.commit()
 
-    await bot.send_message(
+    greet = await bot.send_message(
         chat_id=chat_id,
         text=f"Продолжаем работу с процессом *{process.name}*.",
         parse_mode="Markdown",
     )
+    ctx["bot_message_id"] = greet.message_id
+    await save_chat_context(chat_id, ctx)
 
     from bot.handlers.clarification import send_next_gap_question
-    await send_next_gap_question(chat_id, process.id, bot)
+    await send_next_gap_question(chat_id, process.id, bot, greet.message_id)
 
 
 async def _handle_answer_prompt(chat_id: int, gap_id: int, bot) -> None:
-    """Prompt user to type their answer to a gap question."""
+    """Prompt user to type their answer to a gap question.
+
+    Edits the existing bot message instead of sending a new one.
+    """
     ctx = await get_chat_context(chat_id) or {}
     ctx["pending_gap_id"] = gap_id
+    progress_id = ctx.get("bot_message_id")
     await save_chat_context(chat_id, ctx)
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text="Напишите ответ текстом или отправьте голосовое сообщение.",
-    )
+    import bot.messages as bmsg
+    text = bmsg.ANSWER_PROMPT
+
+    if progress_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=progress_id,
+                text=text,
+            )
+            return
+        except Exception:
+            pass
+
+    msg = await bot.send_message(chat_id=chat_id, text=text)
+    ctx["bot_message_id"] = msg.message_id
+    await save_chat_context(chat_id, ctx)

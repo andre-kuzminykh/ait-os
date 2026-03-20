@@ -1,34 +1,19 @@
-"""Gap detection and follow-up question generation (LLM Call 2)."""
+"""Gap detection and follow-up question generation (LLM Call 2).
+
+Questions are structured by stage: for each stage we check that
+role, system, metrics, and artifacts (input/output) are filled.
+We also check if the list of stages itself seems complete.
+"""
 
 import json
 import logging
 
+from bot.prompts import load_prompt
 from bot.services.llm import chat
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-Ты — аналитик бизнес-процессов. Тебе дана структурированная модель процесса AS-IS. \
-Проверь, какие важные данные отсутствуют или недостаточно описаны.
-
-Для каждого пропуска сформулируй один конкретный, атомарный уточняющий вопрос.
-
-Верни ТОЛЬКО валидный JSON (без markdown-обёртки):
-{
-  "completeness_score": 0.0-1.0,
-  "gaps": [
-    {
-      "stage_id": "stage_1 или null если вопрос про процесс в целом",
-      "field_type": "roles|systems|artifacts|metrics|trigger|output|sla_timing|handoff|decision_point|goal|input|pain_points",
-      "question": "Конкретный вопрос на русском",
-      "confidence": 0.0-1.0
-    }
-  ]
-}
-
-Приоритизируй вопросы по важности. Максимум 5 вопросов за раз. \
-Вопросы должны быть короткими, понятными и легко отвечаемыми в одном сообщении.\
-"""
+SYSTEM_PROMPT = load_prompt("gap_detector")
 
 
 async def detect_gaps(process_name: str, asis_model: dict) -> dict:

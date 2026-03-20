@@ -4,26 +4,12 @@ import json
 import logging
 import re
 
+from bot.prompts import load_prompt
 from bot.services.llm import chat
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-Ты — специалист по визуализации бизнес-процессов. \
-Тебе дана структурированная модель процесса AS-IS. \
-Создай Mermaid-диаграмму (flowchart TD) для этого процесса.
-
-Правила:
-- Используй flowchart TD (сверху вниз).
-- Каждый этап — отдельный узел.
-- Покажи переходы между этапами.
-- Добавь роли как подписи, если они есть.
-- Добавь условия/развилки, если есть decision points.
-- Узлы и подписи на русском.
-- Не используй специальные символы, которые ломают Mermaid-синтаксис.
-
-Верни ТОЛЬКО код Mermaid, без обёрток ``` и без пояснений.\
-"""
+SYSTEM_PROMPT = load_prompt("mermaid")
 
 
 def validate_mermaid(code: str) -> bool:
@@ -37,12 +23,36 @@ def validate_mermaid(code: str) -> bool:
 
 
 def sanitize_mermaid(code: str) -> str:
-    """Remove markdown fences and clean up Mermaid code."""
+    """Remove markdown fences, fix quotes, and clean up Mermaid code."""
     code = code.strip()
     if code.startswith("```"):
         code = re.sub(r"^```\w*\n?", "", code)
         code = re.sub(r"\n?```$", "", code)
-    return code.strip()
+    code = code.strip()
+
+    # Fix common issues that break Mermaid rendering:
+    # 1. Remove quotes around node labels: A["Text"] → A[Text]
+    code = re.sub(r'\[\"([^"]*)\"\]', r'[\1]', code)
+    code = re.sub(r"\[\'([^']*)\'\]", r'[\1]', code)
+    # 2. Same for rhombus nodes: D{"Text?"} → D{Text?}
+    code = re.sub(r'\{\"([^"]*)\"\}', r'{\1}', code)
+    code = re.sub(r"\{\'([^']*)\'\}", r'{\1}', code)
+    # 3. Replace special chars inside node labels that break rendering
+    def _clean_label(m: re.Match) -> str:
+        bracket, content, close = m.group(1), m.group(2), m.group(3)
+        content = content.replace("&", "и")
+        content = content.replace("#", "")
+        content = content.replace("<", "")
+        content = content.replace(">", "")
+        # Remove parentheses that Mermaid may misinterpret as shape syntax
+        content = content.replace("(", "")
+        content = content.replace(")", "")
+        return f"{bracket}{content}{close}"
+
+    code = re.sub(r'(\[)([^\]]+)(\])', _clean_label, code)
+    code = re.sub(r'(\{)([^}]+)(\})', _clean_label, code)
+
+    return code
 
 
 async def generate_mermaid(process_name: str, asis_model: dict) -> str:
