@@ -365,6 +365,10 @@ def _get_bot(update_or_bot):
     """Extract bot instance from Update or return bot directly."""
     if isinstance(update_or_bot, Update):
         return update_or_bot.get_bot()
+    # If it already has send_message, it's a bot
+    if hasattr(update_or_bot, "send_message"):
+        return update_or_bot
+    # ContextTypes.DEFAULT_TYPE has .bot
     if hasattr(update_or_bot, "bot"):
         return update_or_bot.bot
     return update_or_bot
