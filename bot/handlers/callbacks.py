@@ -97,7 +97,7 @@ async def callback_handler(
     elif data.startswith("skip_"):
         gap_id = int(data.split("_", 1)[1])
         from bot.handlers.clarification import handle_gap_skip
-        await handle_gap_skip(chat_id, gap_id, bot)
+        await handle_gap_skip(chat_id, gap_id, bot, message_id)
 
     elif data.startswith("pause_"):
         process_id = int(data.split("_", 1)[1])

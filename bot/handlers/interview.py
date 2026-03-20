@@ -270,7 +270,8 @@ async def _process_input(
         asis.metrics = json.dumps(model_data.get("metrics", []), ensure_ascii=False)
         asis.pain_points = json.dumps(model_data.get("pain_points", []), ensure_ascii=False)
         asis.handoffs = json.dumps(model_data.get("handoffs", []), ensure_ascii=False)
-        asis.completeness_score = completeness
+        # Never decrease completeness
+        asis.completeness_score = max(completeness, asis.completeness_score or 0.0)
 
         # Save new gaps
         from bot.models import Gap
@@ -318,16 +319,18 @@ async def _process_input(
             session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
             await db.commit()
 
-            # Delete progress, show gap question
-            await delete_messages(bot, chat_id, [progress_id] if progress_id else [])
-
-            await bot.send_message(
-                chat_id=chat_id,
-                text=f"📊 Полнота: {int(completeness * 100)}%. Задам уточняющие вопросы.",
+            # Show completeness in the same progress message
+            display_score = int(max(completeness, asis.completeness_score or 0.0) * 100)
+            progress_id = await send_step(
+                bot, chat_id, 2, 2,
+                f"📊 Полнота: {display_score}%",
+                "Задам уточняющие вопросы...",
             )
 
             from bot.handlers.clarification import send_next_gap_question
-            await send_next_gap_question(chat_id, process_id, bot)
+            await send_next_gap_question(
+                chat_id, process_id, bot, progress_id,
+            )
 
 
 def _model_to_dict(m: AsIsModel) -> dict:

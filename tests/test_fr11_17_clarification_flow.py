@@ -76,7 +76,7 @@ class TestFR11_FollowUpGeneration:
 
             await send_next_gap_question(99999, seed_process.id, bot)
 
-        mock_gen.assert_called_once_with(99999, seed_process.id, bot)
+        mock_gen.assert_called_once_with(99999, seed_process.id, bot, None)
 
 
 # ============================================================================
@@ -228,8 +228,10 @@ class TestFR15_ContinueAfterSkip:
 
         await handle_gap_skip(99999, gap_id, bot)
 
-        # Should have sent "Пропущено" and then the next question
-        assert bot.send_message.call_count >= 2
+        # Should have sent at least one message (next question)
+        # Skip now edits messages in place, so send_message or edit_message_text
+        total_calls = bot.send_message.call_count + bot.edit_message_text.call_count
+        assert total_calls >= 1
 
     @pytest.mark.asyncio
     async def test_skip_all_gaps_triggers_generation(

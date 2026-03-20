@@ -35,9 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 async def send_next_gap_question(
-    chat_id: int, process_id: int, update_or_bot
+    chat_id: int, process_id: int, update_or_bot,
+    progress_id: int | None = None,
 ) -> None:
-    """Send the next pending gap question with inline buttons."""
+    """Send the next pending gap question with inline buttons.
+
+    If progress_id is given, edits that message into the question.
+    """
     async with async_session() as db:
         result = await db.execute(
             select(Gap)
@@ -49,7 +53,9 @@ async def send_next_gap_question(
 
     if gap is None:
         # No more gaps → trigger AS-IS generation
-        await trigger_asis_generation(chat_id, process_id, update_or_bot)
+        await trigger_asis_generation(
+            chat_id, process_id, update_or_bot, progress_id,
+        )
         return
 
     keyboard = InlineKeyboardMarkup(
@@ -67,9 +73,23 @@ async def send_next_gap_question(
     )
 
     bot = _get_bot(update_or_bot)
+    text = f"❓ {gap.question_text}"
+
+    if progress_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=progress_id,
+                text=text,
+                reply_markup=keyboard,
+            )
+            return
+        except Exception:
+            pass
+
     await bot.send_message(
         chat_id=chat_id,
-        text=f"❓ {gap.question_text}",
+        text=text,
         reply_markup=keyboard,
     )
 
@@ -130,8 +150,11 @@ async def handle_gap_answer(
         await _process_input(bot, chat_id, process_id, session.id, progress_id)
 
 
-async def handle_gap_skip(chat_id: int, gap_id: int, update_or_bot) -> None:
-    """Mark a gap as skipped and move to next question."""
+async def handle_gap_skip(
+    chat_id: int, gap_id: int, update_or_bot,
+    message_id: int | None = None,
+) -> None:
+    """Mark a gap as skipped and edit the same message to next question."""
     async with async_session() as db:
         gap = await db.get(Gap, gap_id)
         if not gap:
@@ -141,10 +164,20 @@ async def handle_gap_skip(chat_id: int, gap_id: int, update_or_bot) -> None:
         await db.commit()
 
     bot = _get_bot(update_or_bot)
-    msg = await bot.send_message(chat_id=chat_id, text="⏭ Пропущено.")
-    # Auto-delete the skip confirmation after a moment
-    await delete_messages(bot, chat_id, [msg.message_id])
-    await send_next_gap_question(chat_id, process_id, update_or_bot)
+
+    # Briefly show "skipped" in the same message, then replace with next question
+    if message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="⏭ Пропущено. Следующий вопрос...",
+            )
+        except Exception:
+            pass
+        await send_next_gap_question(chat_id, process_id, update_or_bot, message_id)
+    else:
+        await send_next_gap_question(chat_id, process_id, update_or_bot)
 
 
 async def handle_pause(chat_id: int, process_id: int, update_or_bot) -> None:
