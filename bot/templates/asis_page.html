@@ -1,237 +1,400 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" class="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }} — AS-IS | Andre AI</title>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-    <style>
-        :root {
-            --bg: #ffffff;
-            --text: #1a1a2e;
-            --primary: #2563eb;
-            --secondary: #f1f5f9;
-            --border: #e2e8f0;
-            --accent: #7c3aed;
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>{{ title }} — AS-IS | Andre AI</title>
+<!-- SEO & Social Media Meta Tags -->
+<meta name="description" content="{{ goal }}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ title }} (AS-IS) | Andre AI">
+<meta property="og:description" content="{{ goal }}">
+<meta property="og:image" content="https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1200&auto=format&fit=crop">
+<meta property="twitter:card" content="summary_large_image">
+<meta property="twitter:title" content="{{ title }} (AS-IS) | Andre AI">
+<meta property="twitter:description" content="{{ goal }}">
+<meta property="twitter:image" content="https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1200&auto=format&fit=crop">
+<!-- Fonts & Icons -->
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+    darkMode: 'class',
+    theme: {
+        extend: {
+            fontFamily: { mono: ['"JetBrains Mono"', 'monospace'] },
+            colors: { brand: { purple: '#8854F3', orange: '#F97316' } }
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            color: var(--text);
-            background: var(--bg);
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem;
-        }
-        header {
-            border-bottom: 3px solid var(--primary);
-            padding-bottom: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        header .brand {
-            font-size: 0.85rem;
-            color: var(--primary);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.5rem;
-        }
-        h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        .subtitle {
-            color: #64748b;
-            font-size: 0.95rem;
-        }
-        section {
-            margin-bottom: 2rem;
-        }
-        h2 {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: var(--primary);
-            border-left: 4px solid var(--primary);
-            padding-left: 0.75rem;
-            margin-bottom: 1rem;
-        }
-        .section-content {
-            background: var(--secondary);
-            border-radius: 8px;
-            padding: 1.25rem;
-        }
-        .section-content ul {
-            padding-left: 1.25rem;
-        }
-        .section-content li {
-            margin-bottom: 0.35rem;
-        }
-        .section-content table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .section-content th, .section-content td {
-            text-align: left;
-            padding: 0.5rem 0.75rem;
-            border-bottom: 1px solid var(--border);
-        }
-        .section-content th {
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #64748b;
-            text-transform: uppercase;
-        }
-        .diagram-section {
-            background: var(--secondary);
-            border-radius: 8px;
-            padding: 1.5rem;
-            overflow-x: auto;
-        }
-        .diagram-section .mermaid {
-            display: flex;
-            justify-content: center;
-        }
-        .pain-points .section-content {
-            background: #fef2f2;
-            border-left: 4px solid #ef4444;
-        }
-        .automation .section-content {
-            background: #f0fdf4;
-            border-left: 4px solid #22c55e;
-        }
-        footer {
-            margin-top: 3rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border);
-            text-align: center;
-            color: #94a3b8;
-            font-size: 0.8rem;
-        }
-        @media (max-width: 640px) {
-            .container { padding: 1rem; }
-            h1 { font-size: 1.35rem; }
-            .section-content { padding: 1rem; }
-        }
-    </style>
+    }
+}
+</script>
+<style>
+:root {
+    --brand-purple: #8854F3;
+    --brand-orange: #F97316;
+    --bg-main: #f8fafc;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --glass-bg: rgba(255, 255, 255, 0.4);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --grid-color-purple: rgba(136, 84, 243, 0.08);
+    --grid-color-orange: rgba(249, 115, 22, 0.08);
+    --card-bg: rgba(0, 0, 0, 0.03);
+    --header-bg: rgba(255, 255, 255, 0.95);
+}
+.dark {
+    --bg-main: #050505;
+    --text-main: #E5E7EB;
+    --text-muted: #9ca3af;
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.05);
+    --grid-color-purple: rgba(136, 84, 243, 0.04);
+    --grid-color-orange: rgba(249, 115, 22, 0.04);
+    --card-bg: rgba(255, 255, 255, 0.03);
+    --header-bg: rgba(5, 5, 5, 0.95);
+}
+body {
+    font-family: 'JetBrains Mono', monospace;
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    margin: 0;
+    width: 100vw;
+    min-height: 100vh;
+    transition: background-color 0.5s ease, color 0.5s ease;
+    overflow-x: hidden;
+}
+::selection { background: var(--brand-purple); color: #FFFFFF; }
+.bg-grid {
+    background-size: 40px 40px;
+    background-image:
+        linear-gradient(to right, var(--grid-color-purple) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-color-orange) 1px, transparent 1px);
+}
+.blob {
+    position: fixed; z-index: -10; opacity: 0.5;
+    transform: scale(1) translateZ(0);
+    will-change: transform, opacity;
+    background-size: contain; background-repeat: no-repeat; background-position: center;
+    mix-blend-mode: multiply;
+}
+.dark .blob { mix-blend-mode: screen; }
+.blob-purple { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='1600' viewBox='0 0 500 500'%3e%3cdefs%3e%3cradialGradient id='grad' cx='50%25' cy='50%25' r='50%25'%3e%3cstop offset='0%25' stop-color='%238854F3' stop-opacity='1'/%3e%3cstop offset='100%25' stop-color='%238854F3' stop-opacity='0'/%3e%3c/radialGradient%3e%3c/defs%3e%3ccircle cx='250' cy='250' r='250' fill='url(%23grad)'/%3e%3c/svg%3e"); }
+.blob-orange { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='1600' viewBox='0 0 500 500'%3e%3cdefs%3e%3cradialGradient id='grad' cx='50%25' cy='50%25' r='50%25'%3e%3cstop offset='0%25' stop-color='%23F97316' stop-opacity='1'/%3e%3cstop offset='100%25' stop-color='%23F97316' stop-opacity='0'/%3e%3c/radialGradient%3e%3c/defs%3e%3ccircle cx='250' cy='250' r='250' fill='url(%23grad)'/%3e%3c/svg%3e"); }
+.grain-overlay {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    pointer-events: none; z-index: 20; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+}
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: 1.25rem;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+}
+.data-card {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 1rem;
+    transition: all 0.3s ease;
+}
+.data-card:hover {
+    border-color: rgba(136, 84, 243, 0.3);
+    background: rgba(136, 84, 243, 0.02);
+}
+.text-gradient {
+    background: linear-gradient(to right, var(--brand-purple), var(--brand-orange));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.logo-container { display: flex; align-items: center; }
+#mermaid-container svg {
+    max-width: 100%; height: auto;
+    font-family: 'JetBrains Mono', monospace !important;
+}
+header.site-header {
+    background-color: var(--header-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+/* Style injected narrative HTML */
+.narrative-content ul { padding-left: 1.25rem; list-style: disc; }
+.narrative-content li { margin-bottom: 0.35rem; font-size: 0.875rem; color: var(--text-muted); }
+.narrative-content table { width: 100%; border-collapse: collapse; }
+.narrative-content th, .narrative-content td {
+    text-align: left; padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 0.875rem;
+}
+.narrative-content th {
+    font-weight: 600; font-size: 0.75rem; color: var(--text-muted);
+    text-transform: uppercase;
+}
+</style>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <div class="brand">Andre AI</div>
-            <h1>{{ title }}</h1>
-            <div class="subtitle">Описание текущего процесса (AS-IS)</div>
-        </header>
+<body class="antialiased">
+<!-- Background -->
+<div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
+    <div class="absolute inset-0 bg-grid z-10"></div>
+    <div id="blob1" class="blob blob-purple w-[30rem] h-[30rem] md:w-[40rem] md:h-[40rem] lg:w-[50rem] lg:h-[50rem]"></div>
+    <div id="blob2" class="blob blob-orange w-[30rem] h-[30rem] md:w-[40rem] md:h-[40rem] lg:w-[50rem] lg:h-[50rem]"></div>
+    <div class="grain-overlay"></div>
+</div>
 
+<!-- Header -->
+<header class="site-header fixed top-0 left-0 w-full py-2 px-4 md:py-2 md:px-6 z-40 flex justify-between items-center border-b border-[var(--glass-border)] shadow-sm dark:shadow-none transition-colors duration-500">
+    <div class="logo-container gap-2 md:gap-3 shrink-0 min-w-0">
+        <img src="https://i.ibb.co/gn7SmgY/866f2500-dd81-4d09-8c0f-2b55c25a3464-removalai-preview.png" alt="AIT Logo" class="h-10 md:h-12 w-auto object-contain shrink-0 scale-[1.1] origin-left"/>
+        <div class="flex flex-col justify-center text-left">
+            <span class="font-mono text-[10px] md:text-[13px] font-bold text-[var(--text-main)] leading-[1.15] whitespace-nowrap transition-colors duration-500">Andre AI</span>
+            <span class="font-mono text-[10px] md:text-[13px] font-bold text-[var(--text-main)] leading-[1.15] whitespace-nowrap transition-colors duration-500">Technologies</span>
+        </div>
+    </div>
+    <button id="theme-toggle" class="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-main)] hover:scale-110 transition-transform shrink-0 z-50 bg-transparent border-none cursor-pointer">
+        <i class="fa-solid fa-moon dark:hidden text-lg"></i>
+        <i class="fa-solid fa-sun hidden dark:block text-lg"></i>
+    </button>
+</header>
+
+<!-- Main content -->
+<main class="relative z-30 w-full min-h-screen flex flex-col items-center pt-20 md:pt-24 pb-12 px-4 md:px-8">
+
+    <!-- Title block -->
+    <div class="w-full max-w-6xl mb-6 flex flex-col text-center md:text-left mt-2">
+        <div class="inline-flex items-center space-x-3 px-4 py-1.5 rounded-full bg-black/5 dark:bg-white/10 backdrop-blur-md mb-3 uppercase tracking-widest text-[10px] md:text-xs font-bold text-[var(--text-main)] border border-[var(--glass-border)] w-max mx-auto md:mx-0">
+            <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-orange opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-brand-orange"></span>
+            </span>
+            <span>AS-IS</span>
+        </div>
+        <h1 class="text-3xl md:text-5xl font-black uppercase tracking-tight mb-4">
+            <span class="text-gradient">{{ title }}</span>
+        </h1>
         {% if goal %}
-        <section>
-            <h2>Цель процесса</h2>
-            <div class="section-content">
-                <p>{{ goal }}</p>
-            </div>
-        </section>
+        <p class="text-[var(--text-muted)] text-sm md:text-lg max-w-4xl">{{ goal }}</p>
         {% endif %}
+    </div>
+
+    {% if mermaid_code %}
+    <!-- Mermaid Diagram -->
+    <div class="w-full max-w-6xl p-4 md:p-8 flex flex-col items-center justify-center overflow-x-auto min-h-[400px] mb-8 rounded-2xl border border-white/10 shadow-2xl" style="background-color: #1c1c24;">
+        <div id="mermaid-container" class="w-full flex justify-center"></div>
+    </div>
+    {% endif %}
+
+    <div class="w-full max-w-6xl flex flex-col gap-6">
 
         {% if summary %}
-        <section>
-            <h2>Краткое описание</h2>
-            <div class="section-content">
-                <p>{{ summary }}</p>
+        <!-- Summary -->
+        <div class="glass-panel p-6">
+            <h3 class="text-lg font-bold mb-4 uppercase tracking-wider flex items-center gap-2">
+                <i class="fa-solid fa-file-lines text-brand-purple"></i> Краткое описание
+            </h3>
+            <p class="text-sm text-[var(--text-muted)]">{{ summary }}</p>
+        </div>
+        {% endif %}
+
+        {% if inputs_html or outputs_html %}
+        <!-- Inputs / Outputs -->
+        <div class="glass-panel p-6 flex flex-col md:flex-row gap-6">
+            {% if inputs_html %}
+            <div class="flex-1">
+                <h3 class="text-lg font-bold mb-4 uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-arrow-right-to-bracket text-brand-purple"></i> Вход процесса
+                </h3>
+                <div class="narrative-content text-sm text-[var(--text-muted)]">{{ inputs_html }}</div>
             </div>
-        </section>
+            {% endif %}
+            {% if inputs_html and outputs_html %}
+            <div class="w-px bg-[var(--glass-border)] hidden md:block"></div>
+            {% endif %}
+            {% if outputs_html %}
+            <div class="flex-1">
+                <h3 class="text-lg font-bold mb-4 uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-arrow-right-from-bracket text-brand-orange"></i> Выход процесса
+                </h3>
+                <div class="narrative-content text-sm text-[var(--text-muted)]">{{ outputs_html }}</div>
+            </div>
+            {% endif %}
+        </div>
         {% endif %}
 
-        {% if triggers_html %}
-        <section>
-            <h2>Триггеры</h2>
-            <div class="section-content">{{ triggers_html }}</div>
-        </section>
-        {% endif %}
-
-        {% if inputs_html %}
-        <section>
-            <h2>Входные данные</h2>
-            <div class="section-content">{{ inputs_html }}</div>
-        </section>
-        {% endif %}
-
-        {% if outputs_html %}
-        <section>
-            <h2>Выходные данные</h2>
-            <div class="section-content">{{ outputs_html }}</div>
-        </section>
+        {% if triggers_html or artifacts_html %}
+        <!-- Triggers & Artifacts side by side -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {% if triggers_html %}
+            <div class="data-card p-6 h-full">
+                <h3 class="text-lg font-bold mb-4 uppercase tracking-wider text-[var(--text-main)]">
+                    <i class="fa-solid fa-bolt text-brand-purple mr-2"></i>Триггеры процесса
+                </h3>
+                <div class="narrative-content text-sm text-[var(--text-muted)]">{{ triggers_html }}</div>
+            </div>
+            {% endif %}
+            {% if artifacts_html %}
+            <div class="data-card p-6 h-full">
+                <h3 class="text-lg font-bold mb-4 uppercase tracking-wider text-[var(--text-main)]">
+                    <i class="fa-solid fa-folder-open text-brand-orange mr-2"></i>Артефакты процесса
+                </h3>
+                <div class="narrative-content text-sm text-[var(--text-muted)]">{{ artifacts_html }}</div>
+            </div>
+            {% endif %}
+        </div>
         {% endif %}
 
         {% if roles_html %}
-        <section>
-            <h2>Роли и ответственности</h2>
-            <div class="section-content">{{ roles_html }}</div>
-        </section>
+        <!-- Roles -->
+        <div class="glass-panel p-6">
+            <h3 class="text-xl font-bold mb-6 uppercase tracking-wider text-[var(--text-main)] border-b border-[var(--glass-border)] pb-4">
+                <i class="fa-solid fa-users text-brand-purple mr-2"></i>Роли и ответственность
+            </h3>
+            <div class="narrative-content">{{ roles_html }}</div>
+        </div>
         {% endif %}
 
         {% if systems_html %}
-        <section>
-            <h2>Системы</h2>
-            <div class="section-content">{{ systems_html }}</div>
-        </section>
-        {% endif %}
-
-        {% if artifacts_html %}
-        <section>
-            <h2>Артефакты</h2>
-            <div class="section-content">{{ artifacts_html }}</div>
-        </section>
+        <!-- Systems -->
+        <div class="glass-panel p-6">
+            <h3 class="text-sm font-bold uppercase tracking-wider text-[var(--text-main)] mb-4">
+                <i class="fa-solid fa-server text-brand-purple mr-2"></i>Используемые системы (AS-IS)
+            </h3>
+            <div class="narrative-content text-sm text-[var(--text-muted)]">{{ systems_html }}</div>
+        </div>
         {% endif %}
 
         {% if stages_html %}
-        <section>
-            <h2>Этапы процесса</h2>
-            <div class="section-content">{{ stages_html }}</div>
-        </section>
-        {% endif %}
-
-        {% if mermaid_code %}
-        <section>
-            <h2>Диаграмма процесса</h2>
-            <div class="diagram-section">
-                <div class="mermaid">
-{{ mermaid_code }}
-                </div>
-            </div>
-        </section>
+        <!-- Process stages -->
+        <div class="glass-panel p-6">
+            <h3 class="text-xl font-bold mb-6 uppercase tracking-wider text-[var(--text-main)] border-b border-[var(--glass-border)] pb-4">
+                <i class="fa-solid fa-list-ol text-brand-orange mr-2"></i>Последовательность процесса
+            </h3>
+            <div class="narrative-content">{{ stages_html }}</div>
+        </div>
         {% endif %}
 
         {% if metrics_html %}
-        <section>
-            <h2>Метрики</h2>
-            <div class="section-content">{{ metrics_html }}</div>
-        </section>
+        <!-- Metrics -->
+        <div class="glass-panel p-6">
+            <h3 class="text-xl font-bold mb-6 uppercase tracking-wider text-[var(--text-main)] border-b border-[var(--glass-border)] pb-4">
+                <i class="fa-solid fa-chart-line text-brand-purple mr-2"></i>Метрики
+            </h3>
+            <div class="narrative-content">{{ metrics_html }}</div>
+        </div>
         {% endif %}
 
-        {% if pain_points_html %}
-        <section class="pain-points">
-            <h2>Болевые точки</h2>
-            <div class="section-content">{{ pain_points_html }}</div>
-        </section>
+        {% if pain_points_html or automation_candidates_html %}
+        <!-- Pain Points & Automation -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {% if pain_points_html %}
+            <div class="data-card p-6 border-red-500/30">
+                <h3 class="text-sm font-bold mb-4 uppercase text-red-500 flex items-center gap-2">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Узкие места
+                </h3>
+                <div class="narrative-content text-sm text-[var(--text-muted)]">{{ pain_points_html }}</div>
+            </div>
+            {% endif %}
+            {% if automation_candidates_html %}
+            <div class="data-card p-6 border-green-500/30">
+                <h3 class="text-sm font-bold mb-4 uppercase text-green-500 flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Потенциал автоматизации
+                </h3>
+                <div class="narrative-content text-sm text-[var(--text-muted)]">{{ automation_candidates_html }}</div>
+            </div>
+            {% endif %}
+        </div>
         {% endif %}
 
-        {% if automation_candidates_html %}
-        <section class="automation">
-            <h2>Потенциал автоматизации</h2>
-            <div class="section-content">{{ automation_candidates_html }}</div>
-        </section>
-        {% endif %}
-
-        <footer>
-            Сгенерировано с помощью Andre AI
-        </footer>
     </div>
 
-    <script>
-        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
-    </script>
+    <!-- Footer -->
+    <footer class="mt-12 pt-4 border-t border-[var(--glass-border)] text-center text-[var(--text-muted)] text-xs w-full max-w-6xl">
+        Сгенерировано с помощью Andre AI Technologies
+    </footer>
+</main>
+
+<!-- Mermaid JS -->
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+
+const mermaidCode = {{ mermaid_code | tojson }};
+const container = document.getElementById('mermaid-container');
+
+async function renderMermaid() {
+    if (!mermaidCode || !container) return;
+
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'base',
+        themeVariables: {
+            background: '#1c1c24',
+            primaryColor: '#2d2d38',
+            primaryTextColor: '#ffffff',
+            primaryBorderColor: '#8854F3',
+            lineColor: '#64748b',
+            textColor: '#E5E7EB',
+            actorBkg: '#2d2d38',
+            actorBorder: '#8854F3',
+            actorTextColor: '#ffffff',
+            activationBkgColor: '#8854F3',
+            noteBkgColor: '#2d2d38',
+            noteTextColor: '#ffffff',
+            noteBorderColor: '#8854F3'
+        },
+        fontFamily: '"JetBrains Mono", monospace',
+        sequence: { useMaxWidth: true, actorMargin: 50, messageMargin: 40 },
+        flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+    });
+
+    try {
+        container.innerHTML = '';
+        const { svg } = await mermaid.render('process-diagram', mermaidCode);
+        container.innerHTML = svg;
+    } catch (error) {
+        console.error('Mermaid render error:', error);
+        container.innerHTML = '<p style="color:#ef4444;font-size:0.875rem;">Ошибка рендеринга диаграммы. См. консоль.</p>';
+    }
+}
+
+renderMermaid();
+
+// Theme toggle
+const themeToggle = document.getElementById('theme-toggle');
+if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+        document.documentElement.classList.toggle('dark');
+    });
+}
+
+// Blob animation
+const blob1 = document.getElementById('blob1');
+const blob2 = document.getElementById('blob2');
+let wanderTime = 0;
+let blob1State = { x: window.innerWidth * 0.45, y: window.innerHeight * 0.4 };
+let blob2State = { x: window.innerWidth * 0.55, y: window.innerHeight * 0.6 };
+
+function animateBlobs() {
+    wanderTime += 0.002;
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    const baseOffset = Math.min(window.innerWidth * 0.18, 180);
+    const radiusX = Math.min(window.innerWidth * 0.1, 100);
+    const radiusY = Math.min(window.innerHeight * 0.1, 100);
+    let targetX1 = (cx - baseOffset) + radiusX * Math.cos(wanderTime) - (blob1.offsetWidth || 800) / 2;
+    let targetY1 = cy + radiusY * Math.sin(wanderTime * 1.2) - (blob1.offsetHeight || 800) / 2;
+    let targetX2 = (cx + baseOffset) + radiusX * Math.cos(wanderTime + Math.PI) - (blob2.offsetWidth || 800) / 2;
+    let targetY2 = cy + radiusY * Math.sin((wanderTime + Math.PI) * 1.2) - (blob2.offsetHeight || 800) / 2;
+    blob1State.x += (targetX1 - blob1State.x) * 0.03;
+    blob1State.y += (targetY1 - blob1State.y) * 0.03;
+    blob2State.x += (targetX2 - blob2State.x) * 0.03;
+    blob2State.y += (targetY2 - blob2State.y) * 0.03;
+    blob1.style.transform = `translate3d(${blob1State.x}px, ${blob1State.y}px, 0)`;
+    blob2.style.transform = `translate3d(${blob2State.x}px, ${blob2State.y}px, 0)`;
+    requestAnimationFrame(animateBlobs);
+}
+animateBlobs();
+</script>
 </body>
 </html>
