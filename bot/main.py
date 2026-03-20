@@ -81,15 +81,27 @@ async def _voice_router(update, context):
 
 
 async def post_init(application):
-    """Initialize database and set up bot menu after application starts."""
+    """Initialize database, start pages HTTP server, and set up bot menu."""
     await init_db()
     logger.info("Database initialized")
+
+    # Start HTTP server for published pages
+    from bot.web import start_web_server
+    application.bot_data["web_runner"] = await start_web_server()
 
     # Set up burger menu with single "Процессы" command
     await application.bot.set_my_commands([
         BotCommand("start", "Процессы"),
     ])
     logger.info("Bot menu commands set")
+
+
+async def post_shutdown(application):
+    """Clean up the HTTP server on bot shutdown."""
+    runner = application.bot_data.get("web_runner")
+    if runner:
+        await runner.cleanup()
+        logger.info("Pages HTTP server stopped")
 
 
 def main():
@@ -102,6 +114,7 @@ def main():
         ApplicationBuilder()
         .token(TELEGRAM_BOT_TOKEN)
         .post_init(post_init)
+        .post_shutdown(post_shutdown)
         .build()
     )
 
