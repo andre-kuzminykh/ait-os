@@ -1,5 +1,6 @@
-"""Tests for FR-40..FR-43: structured questions, monotonic completeness,
-single-message editing, and separate LLM calls."""
+"""Tests for FR-40..FR-47: structured questions, monotonic completeness,
+single-message editing, separate LLM calls, editable prompts/messages,
+progress bar %, and URL handling."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -479,34 +480,99 @@ class TestFR35_SingleMessageEdit:
 
 
 # ============================================================================
-# Messages and prompts are editable
+# FR-44: Prompts in separate .txt files
 # ============================================================================
 
 
-class TestEditableMessagesAndPrompts:
-    """All status messages and prompts are in separate files for easy editing."""
+class TestFR44_PromptsInFiles:
+    """FR-44: All LLM prompts are loaded from bot/prompts/*.txt files."""
+
+    @pytest.mark.asyncio
+    async def test_all_prompt_files_exist(self):
+        """FR-44.1: All 5 prompt files exist and are non-trivial."""
+        from bot.prompts import load_prompt
+
+        for name in ["extractor", "gap_detector", "generator", "mermaid", "opportunities"]:
+            prompt = load_prompt(name)
+            assert len(prompt) > 50, f"Prompt '{name}' should be non-trivial"
+
+    @pytest.mark.asyncio
+    async def test_services_use_prompt_files(self):
+        """FR-44.2: Service modules load prompts from files, not inline strings."""
+        from bot.services.extractor import SYSTEM_PROMPT as ext_prompt
+        from bot.services.gap_detector import SYSTEM_PROMPT as gap_prompt
+        from bot.services.generator import SYSTEM_PROMPT as gen_prompt
+        from bot.services.mermaid import SYSTEM_PROMPT as merm_prompt
+        from bot.services.opportunities import SYSTEM_PROMPT as opp_prompt
+        from bot.prompts import load_prompt
+
+        # Each service prompt must match the file content
+        assert ext_prompt == load_prompt("extractor")
+        assert gap_prompt == load_prompt("gap_detector")
+        assert gen_prompt == load_prompt("generator")
+        assert merm_prompt == load_prompt("mermaid")
+        assert opp_prompt == load_prompt("opportunities")
+
+
+# ============================================================================
+# FR-45: Status messages in bot/messages.py
+# ============================================================================
+
+
+class TestFR45_MessagesModule:
+    """FR-45: All user-facing status messages in bot/messages.py."""
 
     @pytest.mark.asyncio
     async def test_messages_module_has_all_keys(self):
-        """All key status messages exist in bot.messages."""
+        """FR-45.1: All key status messages exist."""
         import bot.messages as bmsg
 
         required = [
-            "INPUT_SAVED", "VOICE_RECEIVED", "VOICE_FAILED",
-            "EXTRACTING_STRUCTURE", "EVALUATING_COMPLETENESS",
+            "INPUT_SAVED", "INPUT_SAVED_DETAIL",
+            "VOICE_RECEIVED", "VOICE_RECEIVED_DETAIL", "VOICE_FAILED",
+            "EXTRACTING_STRUCTURE", "EXTRACTING_STRUCTURE_DETAIL",
+            "EVALUATING_COMPLETENESS", "EVALUATING_COMPLETENESS_DETAIL",
             "COMPLETENESS_READY", "COMPLETENESS_PARTIAL",
-            "GEN_NARRATIVE", "GEN_DIAGRAM", "GEN_PUBLISH",
-            "GEN_OPPORTUNITIES", "ASIS_READY_TEXT",
+            "GEN_NARRATIVE", "GEN_NARRATIVE_DETAIL",
+            "GEN_DIAGRAM", "GEN_DIAGRAM_DETAIL",
+            "GEN_PUBLISH", "GEN_PUBLISH_DETAIL",
+            "GEN_OPPORTUNITIES", "GEN_OPPORTUNITIES_DETAIL",
+            "ASIS_READY_TEXT", "ASIS_READY_TEXT_NO_URL",
             "BTN_OPEN_ASIS", "BTN_ANSWER", "BTN_SKIP", "BTN_PAUSE",
+            "BTN_CONTINUE_OPPS",
             "SESSION_PAUSED", "ANSWER_PROMPT",
+            "GAP_ANSWER_SAVED", "GAP_ANSWER_SAVED_DETAIL",
+            "ANALYSIS_FAILED", "GEN_NO_DATA", "GEN_NO_OPPS",
+            "NO_CONTEXT", "AUDIO_ONLY",
         ]
         for key in required:
             assert hasattr(bmsg, key), f"bot.messages missing: {key}"
             assert getattr(bmsg, key), f"bot.messages.{key} is empty"
 
     @pytest.mark.asyncio
-    async def test_progress_bar_uses_total_6_steps(self):
-        """Progress bar shows percentage towards full HTML generation (6 steps)."""
+    async def test_asis_ready_text_has_placeholders(self):
+        """FR-45.2: ASIS_READY_TEXT has {name} and {url} placeholders."""
+        import bot.messages as bmsg
+
+        assert "{name}" in bmsg.ASIS_READY_TEXT
+        assert "{url}" in bmsg.ASIS_READY_TEXT
+        # Should not crash when formatted
+        result = bmsg.ASIS_READY_TEXT.format(name="Test", url="https://example.com")
+        assert "Test" in result
+        assert "https://example.com" in result
+
+
+# ============================================================================
+# FR-46: Progress bar shows % towards HTML (6 steps)
+# ============================================================================
+
+
+class TestFR46_ProgressBarPercentage:
+    """FR-46: Progress bar uses 6 total steps (input→extract→completeness→narrative→diagram→publish)."""
+
+    @pytest.mark.asyncio
+    async def test_total_steps_is_6(self):
+        """FR-46.1: Both interview and clarification use TOTAL_STEPS=6."""
         from bot.handlers.interview import TOTAL_STEPS
         from bot.handlers.clarification import TOTAL_STEPS as TOTAL_STEPS_2
 
@@ -514,20 +580,118 @@ class TestEditableMessagesAndPrompts:
         assert TOTAL_STEPS_2 == 6
 
     @pytest.mark.asyncio
-    async def test_progress_bar_percentage_at_step_3(self):
-        """At step 3 of 6, progress bar shows 50%."""
+    async def test_step_1_is_16_percent(self):
+        """FR-46.2: Step 1/6 = 16%."""
         from bot.handlers.progress import loading_bar
+        bar = loading_bar(1, 6)
+        assert "16%" in bar
 
+    @pytest.mark.asyncio
+    async def test_step_3_is_50_percent(self):
+        """FR-46.3: Step 3/6 = 50%."""
+        from bot.handlers.progress import loading_bar
         bar = loading_bar(3, 6)
         assert "50%" in bar
 
     @pytest.mark.asyncio
-    async def test_progress_bar_percentage_at_step_6(self):
-        """At step 6 of 6, progress bar shows 100%."""
+    async def test_step_6_is_100_percent(self):
+        """FR-46.4: Step 6/6 = 100%."""
         from bot.handlers.progress import loading_bar
-
         bar = loading_bar(6, 6)
         assert "100%" in bar
+
+
+# ============================================================================
+# FR-47: localhost URL handling
+# ============================================================================
+
+
+class TestFR47_UrlHandling:
+    """FR-47: localhost URLs shown as text; https URLs use inline button."""
+
+    @pytest.mark.asyncio
+    async def test_localhost_url_no_inline_button(
+        self, db_session, patch_db, seed_process, seed_asis_model, tmp_path,
+    ):
+        """FR-47.1: localhost URL does not create an inline url= button."""
+        bot = make_bot_mock()
+
+        with (
+            patch(
+                "bot.services.generator.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_NARRATIVE, ensure_ascii=False),
+            ),
+            patch(
+                "bot.services.mermaid.chat",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_MERMAID,
+            ),
+            patch("bot.services.publisher.PAGES_DIR", tmp_path),
+            patch(
+                "bot.services.opportunities.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(
+                    {"opportunities": SAMPLE_OPPORTUNITIES}, ensure_ascii=False
+                ),
+            ),
+        ):
+            from bot.handlers.clarification import trigger_asis_generation
+            await trigger_asis_generation(99999, seed_process.id, bot)
+
+        # Check that no inline button has url= with localhost
+        all_calls = (
+            list(bot.send_message.call_args_list)
+            + list(bot.edit_message_text.call_args_list)
+        )
+        for call in all_calls:
+            markup = call[1].get("reply_markup")
+            if markup and hasattr(markup, "inline_keyboard"):
+                for row in markup.inline_keyboard:
+                    for btn in row:
+                        if hasattr(btn, "url") and btn.url:
+                            assert not btn.url.startswith("http://localhost"), \
+                                f"localhost URL must not be used in inline button: {btn.url}"
+
+    @pytest.mark.asyncio
+    async def test_url_shown_in_text(
+        self, db_session, patch_db, seed_process, seed_asis_model, tmp_path,
+    ):
+        """FR-47.2: The URL is always present in message text."""
+        bot = make_bot_mock()
+
+        with (
+            patch(
+                "bot.services.generator.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_NARRATIVE, ensure_ascii=False),
+            ),
+            patch(
+                "bot.services.mermaid.chat",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_MERMAID,
+            ),
+            patch("bot.services.publisher.PAGES_DIR", tmp_path),
+            patch(
+                "bot.services.opportunities.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(
+                    {"opportunities": SAMPLE_OPPORTUNITIES}, ensure_ascii=False
+                ),
+            ),
+        ):
+            from bot.handlers.clarification import trigger_asis_generation
+            await trigger_asis_generation(99999, seed_process.id, bot)
+
+        all_calls = (
+            list(bot.send_message.call_args_list)
+            + list(bot.edit_message_text.call_args_list)
+        )
+        found_url = any(
+            ".html" in call[1].get("text", "")
+            for call in all_calls
+        )
+        assert found_url, "URL must appear in message text"
 
 
 class TestFR36_CleanChat:
