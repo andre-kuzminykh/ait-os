@@ -1,7 +1,10 @@
 """Main entry point for the Andre AI Telegram bot."""
 
+from __future__ import annotations
+
 import logging
 
+from telegram import BotCommand
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -19,7 +22,7 @@ from bot.handlers.interview import (
     handle_text_message,
     handle_voice_message,
 )
-from bot.handlers.start import cmd_new_process, cmd_start
+from bot.handlers.start import cmd_start, handle_new_process_name
 
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -29,17 +32,31 @@ logger = logging.getLogger(__name__)
 
 
 async def _text_router(update, context):
-    """Route text messages: gap answer or general interview input."""
+    """Route text messages: process name, gap answer, or general interview input."""
     chat_id = update.effective_chat.id
     ctx = await get_chat_context(chat_id)
 
+    # 1. Awaiting process name (user clicked "+")
+    if ctx and ctx.get("awaiting_process_name"):
+        text = (update.message.text or "").strip()
+        if text:
+            tg_user_id = update.effective_user.id if update.effective_user else None
+            await handle_new_process_name(
+                context.bot, chat_id, text, tg_user_id,
+                update.message.message_id,
+            )
+        return
+
+    # 2. Pending gap answer
     if ctx and ctx.get("pending_gap_id"):
         gap_id = ctx.pop("pending_gap_id")
         from bot.handlers.callbacks import save_chat_context
         await save_chat_context(chat_id, ctx)
         await handle_gap_answer(update, gap_id, update.message.text)
-    else:
-        await handle_text_message(update, context)
+        return
+
+    # 3. General interview input
+    await handle_text_message(update, context)
 
 
 async def _voice_router(update, context):
@@ -64,9 +81,15 @@ async def _voice_router(update, context):
 
 
 async def post_init(application):
-    """Initialize database after application starts."""
+    """Initialize database and set up bot menu after application starts."""
     await init_db()
     logger.info("Database initialized")
+
+    # Set up burger menu with single "Процессы" command
+    await application.bot.set_my_commands([
+        BotCommand("start", "Процессы"),
+    ])
+    logger.info("Bot menu commands set")
 
 
 def main():
@@ -84,7 +107,6 @@ def main():
 
     # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("new_process", cmd_new_process))
 
     # Callback query handler (inline buttons)
     app.add_handler(CallbackQueryHandler(callback_handler))

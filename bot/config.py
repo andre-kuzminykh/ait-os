@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
 
 DATABASE_URL: str = os.environ.get(
@@ -21,9 +20,9 @@ PAGES_BASE_URL: str = os.environ.get("PAGES_BASE_URL", "http://localhost:8080/pa
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
-# LLM settings
-LLM_MODEL: str = os.environ.get("LLM_MODEL", "claude-sonnet-4-20250514")
-LLM_MAX_TOKENS: int = int(os.environ.get("LLM_MAX_TOKENS", "4096"))
+# LLM settings — OpenAI GPT-5.4
+LLM_MODEL: str = os.environ.get("LLM_MODEL", "gpt-5.4")
+LLM_MAX_TOKENS: int = int(os.environ.get("LLM_MAX_TOKENS", "16000"))
 
 # Completeness threshold (0.0 – 1.0) to trigger AS-IS generation
 COMPLETENESS_THRESHOLD: float = float(

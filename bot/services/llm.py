@@ -1,16 +1,22 @@
-"""LLM client wrapper using Anthropic Claude API."""
+"""LLM client wrapper using OpenAI API."""
 
-import anthropic
+from __future__ import annotations
 
-from bot.config import ANTHROPIC_API_KEY, LLM_MAX_TOKENS, LLM_MODEL
+import logging
 
-_client: anthropic.AsyncAnthropic | None = None
+from openai import AsyncOpenAI
+
+from bot.config import OPENAI_API_KEY, LLM_MAX_TOKENS, LLM_MODEL
+
+logger = logging.getLogger(__name__)
+
+_client: AsyncOpenAI | None = None
 
 
-def get_client() -> anthropic.AsyncAnthropic:
+def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        _client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     return _client
 
 
@@ -23,10 +29,14 @@ async def chat(
 ) -> str:
     """Send a single-turn message and return assistant text."""
     client = get_client()
-    response = await client.messages.create(
+
+    response = await client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
     )
-    return response.content[0].text
+
+    return response.choices[0].message.content or ""

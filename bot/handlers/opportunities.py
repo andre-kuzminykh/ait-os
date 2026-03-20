@@ -1,5 +1,7 @@
 """Automation opportunity selection handlers."""
 
+from __future__ import annotations
+
 import logging
 
 from sqlalchemy import select, func
