@@ -9,20 +9,18 @@ from sqlalchemy import select
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import COMPLETENESS_THRESHOLD
 from bot.database import async_session
 from bot.handlers.progress import delete_messages, send_progress, send_step, typewriter_send
 from bot.models import AsIsModel, InterviewSession, Process, RawInput
 from bot.services.extractor import extract_asis_model
-from bot.services.gap_detector import detect_gaps
 from bot.services.transcription import transcribe_telegram_voice
-from bot.states import GapStatus, ProcessStatus, SessionStatus
+from bot.states import ProcessStatus, SessionStatus
 import bot.messages as msg
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Total steps in the whole pipeline: interview(2) + generation(4) = 6
+# Total steps in the whole pipeline: interview(2) + clarification(1) + generation(3) = 6
 # The progress bar always shows step/TOTAL_STEPS.
 # ---------------------------------------------------------------------------
 TOTAL_STEPS = 6
@@ -192,13 +190,13 @@ async def _process_input(
     bot, chat_id: int, process_id: int, session_id: int,
     progress_id: int | None = None,
 ) -> None:
-    """Extract AS-IS model, detect gaps, and decide next action.
+    """Extract AS-IS model, then always start clarification Q&A.
 
     Shows step-by-step progress by editing a single message.
     Progress bar goes from step 1..TOTAL_STEPS (6) where:
       step 1 = input saved
       step 2 = extracting structure
-      step 3 = evaluating completeness
+      step 3 = clarification questions
       step 4..6 = generation (handled in clarification.py)
     """
     from bot.handlers.callbacks import get_chat_context, save_chat_context
@@ -232,9 +230,7 @@ async def _process_input(
         )
         existing = result.scalar_one_or_none()
         existing_json = None
-        old_completeness = 0.0
         if existing:
-            old_completeness = existing.completeness_score or 0.0
             existing_json = json.dumps(
                 _model_to_dict(existing), ensure_ascii=False
             )
@@ -254,22 +250,8 @@ async def _process_input(
         await send_progress(bot, chat_id, msg.ANALYSIS_FAILED, progress_id)
         return
 
-    # LLM Call 2: Detect gaps  (step 3 of 6)
-    progress_id = await send_step(
-        bot, chat_id, 3, TOTAL_STEPS,
-        msg.EVALUATING_COMPLETENESS, msg.EVALUATING_COMPLETENESS_DETAIL,
-        progress_id,
-    )
-
-    gap_result = await detect_gaps(process.name, model_data)
-    completeness = gap_result.get("completeness_score", 0.0)
-    gaps = gap_result.get("gaps", [])
-
-    # Never allow completeness to decrease
-    effective_completeness = max(completeness, old_completeness)
-
+    # Save/update AS-IS model
     async with async_session() as db:
-        # Save/update AS-IS model
         result = await db.execute(
             select(AsIsModel).where(AsIsModel.process_id == process_id)
         )
@@ -292,74 +274,26 @@ async def _process_input(
         asis.metrics = json.dumps(model_data.get("metrics", []), ensure_ascii=False)
         asis.pain_points = json.dumps(model_data.get("pain_points", []), ensure_ascii=False)
         asis.handoffs = json.dumps(model_data.get("handoffs", []), ensure_ascii=False)
-        asis.completeness_score = effective_completeness
-
-        # Save new gaps
-        from bot.models import Gap
-        from bot.states import GapFieldType
-
-        for g in gaps:
-            field_type_str = g.get("field_type", "")
-            try:
-                ft = GapFieldType(field_type_str)
-            except ValueError:
-                ft = GapFieldType.PAIN_POINTS
-
-            gap = Gap(
-                process_id=process_id,
-                stage_id=g.get("stage_id"),
-                field_type=ft,
-                question_text=g.get("question", ""),
-                confidence_score=g.get("confidence", 0.5),
-                status=GapStatus.PENDING,
-            )
-            db.add(gap)
 
         process = await db.get(Process, process_id)
         session = await db.get(InterviewSession, session_id)
 
-        display_score = int(effective_completeness * 100)
+        # Always go to clarification — LLM decides which questions to ask
+        process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
+        session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
+        await db.commit()
 
-        if effective_completeness >= COMPLETENESS_THRESHOLD or not gaps:
-            # Ready for AS-IS generation
-            process.status = ProcessStatus.ASIS_READY
-            session.state = SessionStatus.COMPLETED
-            await db.commit()
+    # Store bot_message_id so clarification edits the same message
+    ctx = await get_chat_context(chat_id) or {}
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
-            progress_id = await send_step(
-                bot, chat_id, 3, TOTAL_STEPS,
-                msg.COMPLETENESS_READY.format(pct=display_score),
-                msg.COMPLETENESS_READY_DETAIL,
-                progress_id,
-            )
-
-            from bot.handlers.clarification import trigger_asis_generation
-            await trigger_asis_generation(
-                chat_id, process_id, bot, progress_id
-            )
-        else:
-            # Need clarification — start 5-question Q&A flow
-            process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
-            session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
-            await db.commit()
-
-            # Edit progress message to show completeness
-            progress_id = await send_step(
-                bot, chat_id, 3, TOTAL_STEPS,
-                msg.COMPLETENESS_PARTIAL.format(pct=display_score),
-                msg.COMPLETENESS_PARTIAL_DETAIL,
-                progress_id,
-            )
-
-            # Store bot_message_id so clarification edits the same message
-            ctx = await get_chat_context(chat_id) or {}
-            ctx["bot_message_id"] = progress_id
-            await save_chat_context(chat_id, ctx)
-
-            from bot.handlers.clarification import start_clarification_flow
-            await start_clarification_flow(
-                chat_id, process_id, bot, progress_id,
-            )
+    # Start 5-question clarification flow (step 3 of 6)
+    # LLM generates questions; if none needed, proceeds directly to generation
+    from bot.handlers.clarification import start_clarification_flow
+    await start_clarification_flow(
+        chat_id, process_id, bot, progress_id,
+    )
 
 
 def _model_to_dict(m: AsIsModel) -> dict:

@@ -1,4 +1,4 @@
-"""Tests for FR-40..FR-48: structured questions, monotonic completeness,
+"""Tests for FR-40..FR-48: structured questions, always-run clarification,
 single-message editing, separate LLM calls, editable prompts/messages,
 progress bar %, URL handling, and greeting overwrite."""
 
@@ -11,8 +11,6 @@ import pytest_asyncio
 from tests.conftest import (
     BotMock,
     SAMPLE_ASIS_MODEL,
-    SAMPLE_GAP_RESULT,
-    SAMPLE_GAP_RESULT_HIGH,
     SAMPLE_MERMAID,
     SAMPLE_NARRATIVE,
     SAMPLE_OPPORTUNITIES,
@@ -26,26 +24,22 @@ from bot.states import GapStatus, ProcessStatus, SessionStatus
 
 
 # ============================================================================
-# FR-40: Completeness score never decreases
+# FR-40: Clarification always runs after extraction
 # ============================================================================
 
 
-class TestFR40_MonotonicCompleteness:
-    """FR-40: completeness_score must never decrease."""
+class TestFR40_AlwaysClarification:
+    """FR-40: Clarification Q&A always runs after extraction (no threshold gate)."""
 
     @pytest.mark.asyncio
-    async def test_completeness_does_not_decrease(
+    async def test_clarification_always_starts(
         self, db_session, patch_db, seed_process, seed_session, seed_asis_model
     ):
-        """FR-40.1: If LLM returns lower score, stored score stays at max."""
-        # Set existing score to 0.5 so it doesn't trigger AS-IS generation
-        seed_asis_model.completeness_score = 0.5
-
-        # Prepare raw input
+        """FR-40.1: _process_input always calls start_clarification_flow."""
         raw = RawInput(
             session_id=seed_session.id,
             message_type="text",
-            raw_text="Дополнительная информация.",
+            raw_text="Полное описание процесса с ролями, системами, метриками.",
         )
         db_session.add(raw)
         seed_session.state = SessionStatus.PROCESSING_INPUT
@@ -54,18 +48,39 @@ class TestFR40_MonotonicCompleteness:
 
         bot = make_bot_mock()
 
-        # LLM returns lower completeness (0.30) and some gaps
-        lower_gap_result = {
-            "completeness_score": 0.30,
-            "gaps": [
-                {
-                    "stage_id": "stage_1",
-                    "field_type": "metrics",
-                    "question": "Какие метрики?",
-                    "confidence": 0.3,
-                }
-            ],
-        }
+        with (
+            patch(
+                "bot.services.extractor.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
+            ),
+            patch(
+                "bot.handlers.clarification.start_clarification_flow",
+                new_callable=AsyncMock,
+            ) as mock_clar,
+        ):
+            from bot.handlers.interview import _process_input
+
+            await _process_input(bot, 99999, seed_process.id, seed_session.id)
+
+        mock_clar.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_gap_detector_in_main_flow(
+        self, db_session, patch_db, seed_process, seed_session, seed_asis_model
+    ):
+        """FR-40.2: _process_input does NOT call detect_gaps."""
+        raw = RawInput(
+            session_id=seed_session.id,
+            message_type="text",
+            raw_text="Описание процесса.",
+        )
+        db_session.add(raw)
+        seed_session.state = SessionStatus.PROCESSING_INPUT
+        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
+        await db_session.commit()
+
+        bot = make_bot_mock()
 
         with (
             patch(
@@ -74,9 +89,43 @@ class TestFR40_MonotonicCompleteness:
                 return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
             ),
             patch(
+                "bot.handlers.clarification.start_clarification_flow",
+                new_callable=AsyncMock,
+            ),
+            patch(
                 "bot.services.gap_detector.chat",
                 new_callable=AsyncMock,
-                return_value=json.dumps(lower_gap_result, ensure_ascii=False),
+            ) as mock_gap,
+        ):
+            from bot.handlers.interview import _process_input
+
+            await _process_input(bot, 99999, seed_process.id, seed_session.id)
+
+        # gap_detector should NOT be called
+        mock_gap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_set_to_clarification_status(
+        self, db_session, patch_db, seed_process, seed_session, seed_asis_model
+    ):
+        """FR-40.3: Process status is set to CLARIFICATION_IN_PROGRESS."""
+        raw = RawInput(
+            session_id=seed_session.id,
+            message_type="text",
+            raw_text="Описание.",
+        )
+        db_session.add(raw)
+        seed_session.state = SessionStatus.PROCESSING_INPUT
+        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
+        await db_session.commit()
+
+        bot = make_bot_mock()
+
+        with (
+            patch(
+                "bot.services.extractor.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
             ),
             patch(
                 "bot.handlers.clarification.start_clarification_flow",
@@ -87,115 +136,8 @@ class TestFR40_MonotonicCompleteness:
 
             await _process_input(bot, 99999, seed_process.id, seed_session.id)
 
-        # Verify completeness didn't decrease from 0.5
-        await db_session.refresh(seed_asis_model)
-        assert seed_asis_model.completeness_score >= 0.5
-
-    @pytest.mark.asyncio
-    async def test_completeness_can_increase(
-        self, db_session, patch_db, seed_process, seed_session, seed_asis_model
-    ):
-        """FR-40.2: Higher LLM scores are accepted."""
-        seed_asis_model.completeness_score = 0.4
-        raw = RawInput(
-            session_id=seed_session.id,
-            message_type="text",
-            raw_text="Больше деталей.",
-        )
-        db_session.add(raw)
-        seed_session.state = SessionStatus.PROCESSING_INPUT
-        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
-        await db_session.commit()
-
-        bot = make_bot_mock()
-
-        higher_gap_result = {
-            "completeness_score": 0.75,
-            "gaps": [],
-        }
-
-        with (
-            patch(
-                "bot.services.extractor.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
-            ),
-            patch(
-                "bot.services.gap_detector.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(higher_gap_result, ensure_ascii=False),
-            ),
-            patch(
-                "bot.handlers.clarification.trigger_asis_generation",
-                new_callable=AsyncMock,
-            ),
-        ):
-            from bot.handlers.interview import _process_input
-
-            await _process_input(bot, 99999, seed_process.id, seed_session.id)
-
-        await db_session.refresh(seed_asis_model)
-        assert seed_asis_model.completeness_score >= 0.75
-
-    @pytest.mark.asyncio
-    async def test_display_score_uses_max(
-        self, db_session, patch_db, seed_process, seed_session, seed_asis_model
-    ):
-        """FR-40.3: Displayed percentage uses max(old, new), never shows decrease."""
-        # Set to 0.50 (below threshold 0.6 so it won't trigger generation)
-        seed_asis_model.completeness_score = 0.50
-        raw = RawInput(
-            session_id=seed_session.id,
-            message_type="text",
-            raw_text="Ещё данные.",
-        )
-        db_session.add(raw)
-        seed_session.state = SessionStatus.PROCESSING_INPUT
-        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
-        await db_session.commit()
-
-        bot = make_bot_mock()
-
-        # LLM returns lower score
-        lower_result = {
-            "completeness_score": 0.35,
-            "gaps": [
-                {
-                    "stage_id": "stage_1",
-                    "field_type": "roles",
-                    "question": "Кто?",
-                    "confidence": 0.3,
-                }
-            ],
-        }
-
-        with (
-            patch(
-                "bot.services.extractor.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
-            ),
-            patch(
-                "bot.services.gap_detector.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(lower_result, ensure_ascii=False),
-            ),
-            patch(
-                "bot.handlers.clarification.start_clarification_flow",
-                new_callable=AsyncMock,
-            ),
-        ):
-            from bot.handlers.interview import _process_input
-
-            await _process_input(bot, 99999, seed_process.id, seed_session.id)
-
-        # Check that displayed percentage never shows 35%
-        for call in bot.edit_message_text.call_args_list:
-            text = call[1].get("text", "")
-            if "Полнота:" in text:
-                # Should show 50%, not 35%
-                assert "50%" in text
-                assert "35%" not in text
+        await db_session.refresh(seed_process)
+        assert seed_process.status == ProcessStatus.CLARIFICATION_IN_PROGRESS
 
 
 # ============================================================================
@@ -532,11 +474,6 @@ class TestFR36_CleanChat:
                 return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
             ),
             patch(
-                "bot.services.gap_detector.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(SAMPLE_GAP_RESULT, ensure_ascii=False),
-            ),
-            patch(
                 "bot.handlers.clarification.start_clarification_flow",
                 new_callable=AsyncMock,
             ),
@@ -628,7 +565,7 @@ class TestFR45_MessagesModule:
             "GAP_ANSWER_SAVED", "GAP_ANSWER_SAVED_DETAIL",
             "ANALYSIS_FAILED", "GEN_NO_DATA", "GEN_NO_OPPS",
             "NO_CONTEXT", "AUDIO_ONLY",
-            # New clarification flow messages
+            # Clarification flow messages
             "CLARIFICATION_GENERATING", "CLARIFICATION_GENERATING_DETAIL",
             "CLARIFICATION_QUESTION_PREFIX",
             "CLARIFICATION_SUGGESTIONS",
@@ -843,11 +780,6 @@ class TestFR48_GreetingOverwrite:
                 "bot.services.extractor.chat",
                 new_callable=AsyncMock,
                 return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
-            ),
-            patch(
-                "bot.services.gap_detector.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(SAMPLE_GAP_RESULT, ensure_ascii=False),
             ),
             patch(
                 "bot.handlers.clarification.start_clarification_flow",

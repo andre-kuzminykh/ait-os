@@ -56,9 +56,9 @@ async def start_clarification_flow(
 ) -> None:
     """Generate clarification questions and start the sequential Q&A.
 
-    Called after initial extraction when completeness is below threshold.
-    Generates up to 5 questions via LLM, stores them in chat context,
-    and shows the first one.
+    Called after initial extraction. Always runs — LLM decides which
+    questions to include (operations, metrics, roles, systems, artifacts).
+    If no questions needed, proceeds directly to AS-IS generation.
     """
     from bot.handlers.callbacks import get_chat_context, save_chat_context
 
@@ -305,6 +305,23 @@ async def _finish_clarification(
 
     if not process_id:
         return
+
+    # Mark session completed and process ready
+    async with async_session() as db:
+        result = await db.execute(
+            select(InterviewSession).where(
+                InterviewSession.process_id == process_id,
+                InterviewSession.state != SessionStatus.COMPLETED,
+            ).limit(1)
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            session.state = SessionStatus.COMPLETED
+
+        process = await db.get(Process, process_id)
+        if process:
+            process.status = ProcessStatus.ASIS_READY
+        await db.commit()
 
     progress_id = await send_step(
         bot, chat_id, 3, TOTAL_STEPS,
