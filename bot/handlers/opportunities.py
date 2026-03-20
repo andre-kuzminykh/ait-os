@@ -95,24 +95,28 @@ async def show_opportunities_multiselect(
         return
 
     # Build description text — compact: title + emoji, then benefit
+    # Limit to 10 most important opportunities
+    display_opps = opps[:10]
+
     text = "🔍 *Потенциал автоматизации*\n\n"
 
-    for i, opp in enumerate(opps, 1):
+    for i, opp in enumerate(display_opps, 1):
         emoji = _TYPE_EMOJI.get(opp.opp_type.value, "") if opp.opp_type else ""
         text += f"{i}. {opp.title} {emoji}\n"
         if opp.expected_benefit:
-            text += f"   _{opp.expected_benefit}_\n"
+            text += f"    _{opp.expected_benefit}_\n"
+        text += "\n"
 
-    text += "\nВыберите интересующие вас пункты:"
+    text += "Выберите интересующие вас пункты:"
 
-    # AS-IS link at the bottom
+    # AS-IS link at the bottom — Markdown hyperlink
     if asis_url:
         text += f"\n\n[📄 Открыть AS-IS]({asis_url})"
 
-    # Build toggle buttons — title + emoji on the right
+    # Build toggle buttons — title + emoji on the right (max 10)
     buttons = []
     selected_count = 0
-    for opp in opps:
+    for opp in display_opps:
         is_selected = opp.status == OpportunityStatus.SELECTED
         if is_selected:
             selected_count += 1

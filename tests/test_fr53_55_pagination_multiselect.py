@@ -396,6 +396,63 @@ class TestFR54_MultiselectDisplay:
         assert "Не удалось выявить" in text
 
 
+class TestFR54_Spacing:
+    """Message has blank lines between opportunity items for readability."""
+
+    @pytest.mark.asyncio
+    async def test_blank_lines_between_items(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Each opportunity item is separated by a blank line."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        # Between items there should be double newlines (blank line)
+        # e.g. "...benefit_\n\n2. Title..."
+        assert "\n\n2." in text
+        assert "\n\n3." in text
+
+
+class TestFR54_MaxTen:
+    """Display at most 10 opportunities."""
+
+    @pytest.mark.asyncio
+    async def test_max_10_opportunities_shown(
+        self, db_session, patch_db, seed_process,
+    ):
+        """When >10 opportunities, only first 10 displayed."""
+        # Create 12 opportunities
+        for i in range(12):
+            o = AutomationOpportunity(
+                process_id=seed_process.id,
+                title=f"Opp {i+1}",
+                opp_type=OpportunityType.AI,
+                expected_benefit=f"Benefit {i+1}",
+                status=OpportunityStatus.PROPOSED,
+            )
+            db_session.add(o)
+        await db_session.commit()
+
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        call_kwargs = bot.send_message.call_args[1]
+        text = call_kwargs["text"]
+        markup = call_kwargs["reply_markup"]
+
+        # Text should show 10. but not 11.
+        assert "10." in text
+        assert "11." not in text
+
+        # Toggle buttons should be exactly 10
+        toggle_buttons = [
+            row[0] for row in markup.inline_keyboard
+            if row[0].callback_data and row[0].callback_data.startswith("opp_toggle_")
+        ]
+        assert len(toggle_buttons) == 10
+
+
 class TestFR54_Toggle:
     """Toggle changes opportunity status and re-renders."""
 

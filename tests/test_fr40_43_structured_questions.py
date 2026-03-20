@@ -590,6 +590,14 @@ class TestFR45_MessagesModule:
         assert "Test" in result
         assert "https://example.com" in result
 
+    @pytest.mark.asyncio
+    async def test_asis_ready_text_has_hyperlink(self):
+        """FR-45.3: ASIS_READY_TEXT formats URL as Markdown hyperlink."""
+        import bot.messages as bmsg
+
+        result = bmsg.ASIS_READY_TEXT.format(name="Test", url="https://example.com")
+        assert "[📄 Открыть AS-IS](https://example.com)" in result
+
 
 # ============================================================================
 # FR-46: Progress bar shows % towards HTML (6 steps)
