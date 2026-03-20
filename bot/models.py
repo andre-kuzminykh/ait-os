@@ -187,6 +187,7 @@ class PublishedPage(Base):
     mermaid_code = Column(Text, nullable=True)
     narrative_html = Column(Text, nullable=True)
     html_url = Column(String(500), nullable=True)
+    pdf_path = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
 
     process = relationship("Process", back_populates="published_pages")

@@ -34,6 +34,7 @@ from bot.services.clarification import (
 from bot.services.generator import generate_narrative
 from bot.services.mermaid import generate_mermaid
 from bot.services.opportunities import generate_opportunities
+from bot.services.pdf_converter import convert_html_to_pdf
 from bot.services.publisher import publish_page
 from bot.states import (
     GapStatus,
@@ -94,9 +95,15 @@ async def start_clarification_flow(
         await trigger_asis_generation(chat_id, process_id, bot, progress_id)
         return
 
+    # If the first question is about operations, show ONLY it for now.
+    # Questions 2–5 will be regenerated after Q1 is answered/skipped
+    # (because the user may add new stages, changing what needs clarifying).
+    has_ops_first = questions[0].get("field_type") == "operations"
+    initial_questions = [questions[0]] if has_ops_first else questions
+
     # Store questions in chat context
     ctx = await get_chat_context(chat_id) or {}
-    ctx["clarification_questions"] = questions
+    ctx["clarification_questions"] = initial_questions
     ctx["clarification_index"] = 0
     ctx["clarification_active"] = True
     ctx["bot_message_id"] = progress_id
@@ -122,11 +129,9 @@ async def _show_clarification_question(
         return
 
     q = questions[index]
-    total = len(questions)
-    num = index + 1
 
     # Build question text
-    text = msg.CLARIFICATION_QUESTION_PREFIX.format(num=num, total=total)
+    text = msg.CLARIFICATION_QUESTION_PREFIX
     text += f"\n\n{q['question']}"
 
     # Add suggestions
@@ -265,8 +270,17 @@ async def handle_clarification_answer(
             asis.version += 1
             await db.commit()
 
-    # Advance to next question
-    ctx["clarification_index"] = index + 1
+    # If the user just answered the "operations" question, regenerate
+    # remaining questions (2–5) because new stages may have been added.
+    if q["field_type"] == "operations":
+        remaining = await _regenerate_remaining_questions(
+            process_id, process.name if process else "", updated_model,
+        )
+        ctx["clarification_questions"] = [q] + remaining
+        ctx["clarification_index"] = 1
+    else:
+        ctx["clarification_index"] = index + 1
+
     ctx["bot_message_id"] = progress_id
     await save_chat_context(chat_id, ctx)
 
@@ -280,7 +294,31 @@ async def handle_clarification_skip(
     from bot.handlers.callbacks import get_chat_context, save_chat_context
 
     ctx = await get_chat_context(chat_id) or {}
+    questions = ctx.get("clarification_questions", [])
     index = ctx.get("clarification_index", 0)
+    process_id = ctx.get("process_id")
+
+    current_q = questions[index] if index < len(questions) else None
+
+    # If skipping the operations question, regenerate remaining questions
+    # based on the current (unchanged) model.
+    if current_q and current_q.get("field_type") == "operations" and process_id:
+        async with async_session() as db:
+            result = await db.execute(
+                select(AsIsModel).where(AsIsModel.process_id == process_id)
+            )
+            asis = result.scalar_one_or_none()
+            process = await db.get(Process, process_id)
+            if asis and process:
+                model_data = _model_to_dict(asis)
+                remaining = await _regenerate_remaining_questions(
+                    process_id, process.name, model_data,
+                )
+                ctx["clarification_questions"] = [current_q] + remaining
+                ctx["clarification_index"] = 1
+                await save_chat_context(chat_id, ctx)
+                await _show_clarification_question(chat_id, bot, message_id)
+                return
 
     ctx["clarification_index"] = index + 1
     await save_chat_context(chat_id, ctx)
@@ -576,15 +614,22 @@ async def trigger_asis_generation(
     )
 
     url = None
+    page_token = None
     async with async_session() as db:
         page = PublishedPage(process_id=process_id, mermaid_code=mermaid_code)
         db.add(page)
         await db.flush()
+        page_token = page.token
 
         url = await publish_page(page.token, narrative, mermaid_code)
         if url:
             page.html_url = url
             page.narrative_html = json.dumps(narrative, ensure_ascii=False)
+
+            # Generate PDF from the published HTML
+            pdf_path = await convert_html_to_pdf(page.token)
+            if pdf_path:
+                page.pdf_path = pdf_path
 
             process = await db.get(Process, process_id)
             process.status = ProcessStatus.ASIS_PUBLISHED
@@ -710,6 +755,17 @@ async def _show_final_result(
     ctx["bot_message_id"] = sent_id
     ctx["clarification_active"] = False
     await save_chat_context(chat_id, ctx)
+
+
+async def _regenerate_remaining_questions(
+    process_id: int, process_name: str, updated_model: dict,
+) -> list[dict]:
+    """Re-generate questions 2–5 (metrics, roles, systems, artifacts) after
+    the operations question has been answered, because new stages may have
+    been added and the remaining questions need to account for them."""
+    questions = await generate_clarification_questions(process_name, updated_model)
+    # Keep only non-operations questions (operations was already answered)
+    return [q for q in questions if q.get("field_type") != "operations"]
 
 
 def _model_to_dict(m: AsIsModel) -> dict:

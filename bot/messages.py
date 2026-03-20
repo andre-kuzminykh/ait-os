@@ -61,7 +61,7 @@ SESSION_PAUSED = (
 CLARIFICATION_GENERATING = "⏳ Формирую уточняющие вопросы"
 CLARIFICATION_GENERATING_DETAIL = "LLM анализирует пробелы в модели..."
 
-CLARIFICATION_QUESTION_PREFIX = "❓ Вопрос {num} из {total}"
+CLARIFICATION_QUESTION_PREFIX = "❓ Уточняющий вопрос"
 CLARIFICATION_SUGGESTIONS = "\n\n💡 *Возможные варианты:*\n{suggestions}"
 CLARIFICATION_ANSWER_HINT = (
     "\n\n_Ответьте текстом или голосовым сообщением, "

@@ -11,13 +11,29 @@
   "roles_html": "<ul>...</ul> или таблица",
   "systems_html": "<ul>...</ul>",
   "artifacts_html": "<ul>...</ul>",
-  "stages_html": "HTML описание этапов процесса с деталями по каждому этапу",
+  "stages_html": "HTML описание этапов (см. формат ниже)",
   "metrics_html": "<ul>...</ul> или таблица метрик по этапам",
   "pain_points_html": "<ul>...</ul>",
   "automation_candidates_html": "<ul>...</ul> краткий блок потенциальных точек автоматизации"
 }
 
+Формат stages_html (ОБЯЗАТЕЛЬНО):
+Для каждого этапа используй такую структуру:
+<div class="stage-block">
+  <h3 class="stage-title">Название этапа</h3>
+  <p>Описание этапа...</p>
+  <div class="stage-details">
+    <p><strong>Роль:</strong> ...</p>
+    <p><strong>Системы:</strong> ...</p>
+    <p><strong>Вход:</strong> ...</p>
+    <p><strong>Выход:</strong> ...</p>
+    <p><strong>Метрики:</strong> ...</p>
+    <p><strong>Боли:</strong> ...</p>
+  </div>
+</div>
+Показывай метрики для КАЖДОЙ операции/этапа отдельно внутри stages_html (а не только в metrics_html).
+
 Стиль:
 - Лаконичный, деловой.
 - Используй списки и таблицы для наглядности.
-- HTML без внешних стилей, только чистый HTML.
+- HTML без внешних стилей, только чистый HTML (используй CSS-классы stage-block, stage-title, stage-details).

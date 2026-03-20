@@ -359,7 +359,7 @@ class TestFR35_SingleMessageEdit:
         bot.edit_message_text.assert_called()
         edit_kwargs = bot.edit_message_text.call_args[1]
         assert edit_kwargs["message_id"] == progress_msg_id
-        assert "Вопрос" in edit_kwargs["text"]
+        assert "Уточняющий вопрос" in edit_kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_skip_edits_same_message(
@@ -797,3 +797,265 @@ class TestFR48_GreetingOverwrite:
         assert found, (
             f"Greeting msg {greeting_msg_id} must be edited by first progress step"
         )
+
+
+# ============================================================================
+# FR-49: Questions 2-5 generated after Q1 (operations)
+# ============================================================================
+
+
+class TestFR49_DynamicQuestionsAfterOperations:
+    """FR-49: Questions 2–5 are regenerated after Q1 is answered/skipped."""
+
+    @pytest.mark.asyncio
+    async def test_only_operations_question_shown_initially(
+        self, db_session, patch_db, seed_process, seed_asis_model,
+    ):
+        """FR-49.1: When operations question is included, only it is shown first."""
+        bot = make_bot_mock()
+
+        all_included = {
+            "questions": [
+                {"field_type": "operations", "include": True, "question": "Ops?", "suggestions": ["a"]},
+                {"field_type": "metrics", "include": True, "question": "Met?", "suggestions": ["b"]},
+                {"field_type": "roles", "include": True, "question": "Rol?", "suggestions": ["c"]},
+                {"field_type": "systems", "include": True, "question": "Sys?", "suggestions": ["d"]},
+                {"field_type": "artifacts", "include": True, "question": "Art?", "suggestions": ["e"]},
+            ]
+        }
+
+        from bot.handlers.callbacks import save_chat_context, get_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+        })
+
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(all_included, ensure_ascii=False),
+        ):
+            from bot.handlers.clarification import start_clarification_flow
+
+            await start_clarification_flow(99999, seed_process.id, bot, 5000)
+
+        ctx = await get_chat_context(99999)
+        # Only 1 question should be stored initially (operations only)
+        assert len(ctx["clarification_questions"]) == 1
+        assert ctx["clarification_questions"][0]["field_type"] == "operations"
+
+    @pytest.mark.asyncio
+    async def test_skip_operations_regenerates_remaining(
+        self, db_session, patch_db, seed_process, seed_asis_model,
+    ):
+        """FR-49.2: Skipping operations regenerates remaining questions."""
+        bot = make_bot_mock()
+
+        from bot.handlers.callbacks import save_chat_context, get_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": [
+                {"field_type": "operations", "question": "Ops?", "suggestions": ["a"]},
+            ],
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
+
+        regenerated = {
+            "questions": [
+                {"field_type": "operations", "include": False, "question": "", "suggestions": []},
+                {"field_type": "metrics", "include": True, "question": "New metrics?", "suggestions": ["x"]},
+                {"field_type": "roles", "include": False, "question": "", "suggestions": []},
+                {"field_type": "systems", "include": True, "question": "New sys?", "suggestions": ["y"]},
+                {"field_type": "artifacts", "include": False, "question": "", "suggestions": []},
+            ]
+        }
+
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(regenerated, ensure_ascii=False),
+        ):
+            from bot.handlers.clarification import handle_clarification_skip
+
+            await handle_clarification_skip(99999, bot, 5000)
+
+        ctx = await get_chat_context(99999)
+        # Should have ops + 2 regenerated questions = 3 total
+        assert len(ctx["clarification_questions"]) == 3
+        assert ctx["clarification_index"] == 1
+        assert ctx["clarification_questions"][1]["field_type"] == "metrics"
+        assert ctx["clarification_questions"][2]["field_type"] == "systems"
+
+    @pytest.mark.asyncio
+    async def test_non_operations_questions_not_deferred(
+        self, db_session, patch_db, seed_process, seed_asis_model,
+    ):
+        """FR-49.3: When no operations question, all questions shown at once."""
+        bot = make_bot_mock()
+
+        no_ops = {
+            "questions": [
+                {"field_type": "operations", "include": False, "question": "", "suggestions": []},
+                {"field_type": "metrics", "include": True, "question": "Met?", "suggestions": ["b"]},
+                {"field_type": "roles", "include": True, "question": "Rol?", "suggestions": ["c"]},
+                {"field_type": "systems", "include": False, "question": "", "suggestions": []},
+                {"field_type": "artifacts", "include": True, "question": "Art?", "suggestions": ["e"]},
+            ]
+        }
+
+        from bot.handlers.callbacks import save_chat_context, get_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+        })
+
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(no_ops, ensure_ascii=False),
+        ):
+            from bot.handlers.clarification import start_clarification_flow
+
+            await start_clarification_flow(99999, seed_process.id, bot, 5000)
+
+        ctx = await get_chat_context(99999)
+        # All 3 questions should be stored (no deferral)
+        assert len(ctx["clarification_questions"]) == 3
+
+
+# ============================================================================
+# FR-50: No question numbers shown
+# ============================================================================
+
+
+class TestFR50_NoQuestionNumbers:
+    """FR-50: Question numbers are not shown to the user."""
+
+    @pytest.mark.asyncio
+    async def test_question_prefix_has_no_numbers(self):
+        """FR-50.1: CLARIFICATION_QUESTION_PREFIX has no {num} or {total}."""
+        import bot.messages as bmsg
+
+        assert "{num}" not in bmsg.CLARIFICATION_QUESTION_PREFIX
+        assert "{total}" not in bmsg.CLARIFICATION_QUESTION_PREFIX
+
+    @pytest.mark.asyncio
+    async def test_question_text_has_no_number_prefix(
+        self, db_session, patch_db, seed_process, seed_asis_model,
+    ):
+        """FR-50.2: Displayed question text does not contain 'N из M'."""
+        bot = make_bot_mock()
+
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
+
+        from bot.handlers.clarification import _show_clarification_question
+
+        await _show_clarification_question(99999, bot, 5000)
+
+        text = bot.edit_message_text.call_args[1]["text"]
+        # Should not contain number patterns
+        assert " из " not in text
+        assert "Уточняющий вопрос" in text
+
+
+# ============================================================================
+# FR-51: HTML-to-PDF generation
+# ============================================================================
+
+
+class TestFR51_PdfGeneration:
+    """FR-51: HTML page is converted to PDF via WeasyPrint."""
+
+    @pytest.mark.asyncio
+    async def test_pdf_converter_service_exists(self):
+        """FR-51.1: PDF converter service module exists."""
+        from bot.services.pdf_converter import convert_html_to_pdf
+
+        assert callable(convert_html_to_pdf)
+
+    @pytest.mark.asyncio
+    async def test_pdf_converter_returns_none_for_missing_html(self, tmp_path):
+        """FR-51.2: Returns None when HTML file does not exist."""
+        with patch("bot.services.pdf_converter.PAGES_DIR", tmp_path):
+            from bot.services.pdf_converter import convert_html_to_pdf
+
+            result = await convert_html_to_pdf("nonexistent_token")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_published_page_has_pdf_path_column(self):
+        """FR-51.3: PublishedPage model has pdf_path column."""
+        from bot.models import PublishedPage
+
+        assert hasattr(PublishedPage, "pdf_path")
+
+    @pytest.mark.asyncio
+    async def test_weasyprint_in_requirements(self):
+        """FR-51.4: weasyprint is listed in requirements.txt."""
+        from pathlib import Path
+
+        req_path = Path(__file__).parent.parent / "requirements.txt"
+        content = req_path.read_text()
+        assert "weasyprint" in content.lower()
+
+
+# ============================================================================
+# FR-52: Stage blocks with big headers, spacing, per-operation metrics
+# ============================================================================
+
+
+class TestFR52_StageBlockStyling:
+    """FR-52: Stages section has big headers, spacing, per-operation metrics."""
+
+    @pytest.mark.asyncio
+    async def test_template_has_stage_block_css(self):
+        """FR-52.1: HTML template defines .stage-block CSS class."""
+        from pathlib import Path
+
+        template_path = Path(__file__).parent.parent / "bot" / "templates" / "asis_page.html"
+        content = template_path.read_text()
+        assert ".stage-block" in content
+        assert ".stage-title" in content
+        assert ".stage-details" in content
+
+    @pytest.mark.asyncio
+    async def test_stage_block_has_margin(self):
+        """FR-52.2: .stage-block has margin-bottom for spacing."""
+        from pathlib import Path
+
+        template_path = Path(__file__).parent.parent / "bot" / "templates" / "asis_page.html"
+        content = template_path.read_text()
+        assert "margin-bottom: 2rem" in content
+
+    @pytest.mark.asyncio
+    async def test_stage_title_is_large(self):
+        """FR-52.3: .stage-title has a large font size."""
+        from pathlib import Path
+
+        template_path = Path(__file__).parent.parent / "bot" / "templates" / "asis_page.html"
+        content = template_path.read_text()
+        assert "font-size: 1.25rem" in content
+
+    @pytest.mark.asyncio
+    async def test_generator_prompt_mentions_stage_metrics(self):
+        """FR-52.4: Generator prompt instructs per-operation metrics."""
+        from bot.prompts import load_prompt
+
+        prompt = load_prompt("generator")
+        assert "Метрики" in prompt
+        assert "stage-block" in prompt
+        assert "stage-title" in prompt

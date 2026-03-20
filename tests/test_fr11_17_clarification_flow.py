@@ -188,10 +188,10 @@ class TestFR13_SkipButtonOnly:
         assert "Завершить позже" not in buttons
 
     @pytest.mark.asyncio
-    async def test_question_shows_number_and_total(
+    async def test_question_shows_prefix_without_numbers(
         self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-13.2: Question shows 'Вопрос N из M'."""
+        """FR-13.2 / FR-50: Question shows prefix without numbers."""
         bot = make_bot_mock()
 
         from bot.handlers.callbacks import save_chat_context
@@ -209,7 +209,9 @@ class TestFR13_SkipButtonOnly:
         await _show_clarification_question(99999, bot, 5000)
 
         text = bot.edit_message_text.call_args[1]["text"]
-        assert "Вопрос 1 из 2" in text
+        assert "Уточняющий вопрос" in text
+        # Numbers should NOT be shown (FR-50)
+        assert "Вопрос 1 из" not in text
 
     @pytest.mark.asyncio
     async def test_question_shows_suggestions(
@@ -292,7 +294,7 @@ class TestFR14_SkipAdvances:
 
         # Next question should be about systems (index=1)
         text = bot.edit_message_text.call_args[1]["text"]
-        assert "Вопрос 2 из 2" in text
+        assert "Уточняющий вопрос" in text
         assert "систем" in text.lower()
 
 
@@ -340,7 +342,7 @@ class TestFR15_ContinueAfterAnswer:
         # Should show next question (index advanced)
         bot = update.get_bot()
         last_text = bot.edit_message_text.call_args[1]["text"]
-        assert "Вопрос 2 из 2" in last_text
+        assert "Уточняющий вопрос" in last_text
 
     @pytest.mark.asyncio
     async def test_answer_updates_asis_model(
