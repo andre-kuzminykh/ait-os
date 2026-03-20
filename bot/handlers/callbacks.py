@@ -272,12 +272,28 @@ async def _handle_resume(
 
 
 async def _handle_answer_prompt(chat_id: int, gap_id: int, bot) -> None:
-    """Prompt user to type their answer to a gap question."""
+    """Prompt user to type their answer to a gap question.
+
+    Edits the existing bot message instead of sending a new one.
+    """
     ctx = await get_chat_context(chat_id) or {}
     ctx["pending_gap_id"] = gap_id
+    progress_id = ctx.get("bot_message_id")
     await save_chat_context(chat_id, ctx)
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text="Напишите ответ текстом или отправьте голосовое сообщение.",
-    )
+    text = "Напишите ответ текстом или отправьте голосовое сообщение."
+
+    if progress_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=progress_id,
+                text=text,
+            )
+            return
+        except Exception:
+            pass
+
+    msg = await bot.send_message(chat_id=chat_id, text=text)
+    ctx["bot_message_id"] = msg.message_id
+    await save_chat_context(chat_id, ctx)

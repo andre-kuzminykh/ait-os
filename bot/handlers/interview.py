@@ -25,7 +25,7 @@ async def handle_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle plain text messages during interview."""
-    from bot.handlers.callbacks import get_chat_context
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
 
     chat_id = update.effective_chat.id
     ctx = await get_chat_context(chat_id)
@@ -46,6 +46,9 @@ async def handle_text_message(
     bot = context.bot
     user_msg_id = update.message.message_id
 
+    # Use the single bot message if stored in context
+    progress_id = ctx.get("bot_message_id")
+
     async with async_session() as db:
         session = await db.get(InterviewSession, session_id)
         if not session:
@@ -61,13 +64,19 @@ async def handle_text_message(
         session.state = SessionStatus.PROCESSING_INPUT
         await db.commit()
 
-    # Send progress message, delete user's message
+    # Delete user's message, edit bot's message for progress
+    await delete_messages(bot, chat_id, [user_msg_id])
+
     progress_id = await send_step(
         bot, chat_id, 0, 2,
         "⏳ Записал ввод",
         "Сохраняю текст и начинаю анализ...",
+        progress_id,
     )
-    await delete_messages(bot, chat_id, [user_msg_id])
+
+    # Store the bot message id in context
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
 
@@ -76,7 +85,7 @@ async def handle_voice_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle voice notes and audio files."""
-    from bot.handlers.callbacks import get_chat_context
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
 
     chat_id = update.effective_chat.id
     ctx = await get_chat_context(chat_id)
@@ -93,13 +102,21 @@ async def handle_voice_message(
     bot = context.bot
     user_msg_id = update.message.message_id
 
-    # Progress: transcribing
+    # Use the single bot message if stored in context
+    progress_id = ctx.get("bot_message_id")
+
+    # Delete user message, show progress in bot message
+    await delete_messages(bot, chat_id, [user_msg_id])
+
     progress_id = await send_step(
         bot, chat_id, 0, 3,
         "🎤 Получил аудио",
         "Отправляю на распознавание речи (Whisper API)...",
+        progress_id,
     )
-    await delete_messages(bot, chat_id, [user_msg_id])
+
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
     transcript = await transcribe_telegram_voice(bot, voice.file_id)
 
@@ -116,6 +133,7 @@ async def handle_voice_message(
         bot, chat_id, 1, 3,
         "📝 Распознаю текст...",
         "Обрабатываю результат транскрипции...",
+        progress_id,
     )
     progress_id = await typewriter_send(
         bot, chat_id, transcript, prefix="📝 Распознано:\n", message_id=progress_id,
@@ -143,6 +161,7 @@ async def handle_voice_message(
         bot, chat_id, 2, 3,
         "⏳ Анализирую...",
         "Передаю текст в LLM для извлечения структуры процесса...",
+        progress_id,
     )
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
 
@@ -182,6 +201,8 @@ async def _process_input(
 
     Shows step-by-step progress by editing a single message.
     """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
     async with async_session() as db:
         process = await db.get(Process, process_id)
         session = await db.get(InterviewSession, session_id)
@@ -211,7 +232,9 @@ async def _process_input(
         )
         existing = result.scalar_one_or_none()
         existing_json = None
+        old_completeness = 0.0
         if existing:
+            old_completeness = existing.completeness_score or 0.0
             existing_json = json.dumps(
                 _model_to_dict(existing), ensure_ascii=False
             )
@@ -221,6 +244,7 @@ async def _process_input(
         bot, chat_id, 1, 2,
         "⏳ Извлекаю структуру процесса",
         "LLM анализирует текст → цель, этапы, роли, системы, артефакты, метрики, боли...",
+        progress_id,
     )
 
     model_data = await extract_asis_model(
@@ -240,11 +264,15 @@ async def _process_input(
         bot, chat_id, 2, 2,
         "⏳ Оцениваю полноту описания",
         "LLM проверяет: все ли роли, системы, метрики, SLA, точки передачи указаны...",
+        progress_id,
     )
 
     gap_result = await detect_gaps(process.name, model_data)
     completeness = gap_result.get("completeness_score", 0.0)
     gaps = gap_result.get("gaps", [])
+
+    # Never allow completeness to decrease
+    effective_completeness = max(completeness, old_completeness)
 
     async with async_session() as db:
         # Save/update AS-IS model
@@ -270,8 +298,7 @@ async def _process_input(
         asis.metrics = json.dumps(model_data.get("metrics", []), ensure_ascii=False)
         asis.pain_points = json.dumps(model_data.get("pain_points", []), ensure_ascii=False)
         asis.handoffs = json.dumps(model_data.get("handoffs", []), ensure_ascii=False)
-        # Never decrease completeness
-        asis.completeness_score = max(completeness, asis.completeness_score or 0.0)
+        asis.completeness_score = effective_completeness
 
         # Save new gaps
         from bot.models import Gap
@@ -297,7 +324,9 @@ async def _process_input(
         process = await db.get(Process, process_id)
         session = await db.get(InterviewSession, session_id)
 
-        if completeness >= COMPLETENESS_THRESHOLD or not gaps:
+        display_score = int(effective_completeness * 100)
+
+        if effective_completeness >= COMPLETENESS_THRESHOLD or not gaps:
             # Ready for AS-IS generation
             process.status = ProcessStatus.ASIS_READY
             session.state = SessionStatus.COMPLETED
@@ -305,8 +334,9 @@ async def _process_input(
 
             progress_id = await send_step(
                 bot, chat_id, 2, 2,
-                f"✅ Полнота описания: {int(completeness * 100)}%",
+                f"✅ Полнота описания: {display_score}%",
                 "Достаточно данных! Перехожу к генерации AS-IS страницы...",
+                progress_id,
             )
 
             from bot.handlers.clarification import trigger_asis_generation
@@ -319,13 +349,18 @@ async def _process_input(
             session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
             await db.commit()
 
-            # Show completeness in the same progress message
-            display_score = int(max(completeness, asis.completeness_score or 0.0) * 100)
+            # Edit progress message to show completeness, then to gap question
             progress_id = await send_step(
                 bot, chat_id, 2, 2,
                 f"📊 Полнота: {display_score}%",
                 "Задам уточняющие вопросы...",
+                progress_id,
             )
+
+            # Store bot_message_id so gap question edits the same message
+            ctx = await get_chat_context(chat_id) or {}
+            ctx["bot_message_id"] = progress_id
+            await save_chat_context(chat_id, ctx)
 
             from bot.handlers.clarification import send_next_gap_question
             await send_next_gap_question(

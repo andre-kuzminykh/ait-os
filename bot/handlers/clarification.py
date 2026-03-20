@@ -40,8 +40,10 @@ async def send_next_gap_question(
 ) -> None:
     """Send the next pending gap question with inline buttons.
 
-    If progress_id is given, edits that message into the question.
+    Edits the existing progress_id message into the question.
     """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
     async with async_session() as db:
         result = await db.execute(
             select(Gap)
@@ -75,6 +77,7 @@ async def send_next_gap_question(
     bot = _get_bot(update_or_bot)
     text = f"❓ {gap.question_text}"
 
+    sent_id = None
     if progress_id:
         try:
             await bot.edit_message_text(
@@ -83,27 +86,40 @@ async def send_next_gap_question(
                 text=text,
                 reply_markup=keyboard,
             )
-            return
+            sent_id = progress_id
         except Exception:
             pass
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        reply_markup=keyboard,
-    )
+    if sent_id is None:
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=keyboard,
+        )
+        sent_id = msg.message_id
+
+    # Store the bot message id so future edits go to the same message
+    ctx = await get_chat_context(chat_id) or {}
+    ctx["bot_message_id"] = sent_id
+    await save_chat_context(chat_id, ctx)
 
 
 async def handle_gap_answer(
     update: Update, gap_id: int, answer_text: str
 ) -> None:
     """Process answer to a gap question."""
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
     chat_id = update.effective_chat.id
     bot = update.get_bot()
 
     # Delete user's answer message
     if update.message:
         await delete_messages(bot, chat_id, [update.message.message_id])
+
+    # Get the bot message to reuse for progress
+    ctx = await get_chat_context(chat_id) or {}
+    progress_id = ctx.get("bot_message_id")
 
     async with async_session() as db:
         gap = await db.get(Gap, gap_id)
@@ -138,12 +154,17 @@ async def handle_gap_answer(
 
         await db.commit()
 
-    # Show progress
+    # Edit the existing bot message to show progress
     progress_id = await send_step(
         bot, chat_id, 0, 2,
         "⏳ Записал ответ",
         "Добавляю к модели и перезапускаю анализ...",
+        progress_id,
     )
+
+    # Store updated bot message id
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
 
     from bot.handlers.interview import _process_input
     if session:
@@ -165,23 +186,14 @@ async def handle_gap_skip(
 
     bot = _get_bot(update_or_bot)
 
-    # Briefly show "skipped" in the same message, then replace with next question
-    if message_id:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text="⏭ Пропущено. Следующий вопрос...",
-            )
-        except Exception:
-            pass
-        await send_next_gap_question(chat_id, process_id, update_or_bot, message_id)
-    else:
-        await send_next_gap_question(chat_id, process_id, update_or_bot)
+    # Edit the same message to show next question
+    await send_next_gap_question(chat_id, process_id, update_or_bot, message_id)
 
 
 async def handle_pause(chat_id: int, process_id: int, update_or_bot) -> None:
     """Pause the interview session."""
+    from bot.handlers.callbacks import get_chat_context
+
     async with async_session() as db:
         result = await db.execute(
             select(InterviewSession).where(
@@ -195,20 +207,41 @@ async def handle_pause(chat_id: int, process_id: int, update_or_bot) -> None:
             await db.commit()
 
     bot = _get_bot(update_or_bot)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "⏸ Сессия приостановлена. "
-            "Вы можете вернуться в любое время — я продолжу с того же места."
-        ),
+
+    # Edit existing bot message instead of sending new
+    ctx = await get_chat_context(chat_id) or {}
+    progress_id = ctx.get("bot_message_id")
+
+    text = (
+        "⏸ Сессия приостановлена. "
+        "Вы можете вернуться в любое время — я продолжу с того же места."
     )
+
+    if progress_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=progress_id,
+                text=text,
+            )
+            return
+        except Exception:
+            pass
+
+    await bot.send_message(chat_id=chat_id, text=text)
 
 
 async def trigger_asis_generation(
     chat_id: int, process_id: int, update_or_bot,
     progress_id: int | None = None,
 ) -> None:
-    """Generate AS-IS page: narrative + mermaid + HTML with step-by-step progress."""
+    """Generate AS-IS page: narrative + mermaid + HTML with step-by-step progress.
+
+    All progress is shown by editing a single message. At the end the message
+    becomes a link to the published AS-IS page.
+    """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
     bot = _get_bot(update_or_bot)
 
     async with async_session() as db:
@@ -219,24 +252,25 @@ async def trigger_asis_generation(
         asis = result.scalar_one_or_none()
 
         if not asis or not process:
-            await bot.send_message(
-                chat_id=chat_id,
-                text="Недостаточно данных для генерации AS-IS.",
+            await send_progress(
+                bot, chat_id,
+                "Недостаточно данных для генерации AS-IS.",
+                progress_id,
             )
             return
 
         model_data = _model_to_dict(asis)
 
-    # LLM Call 3: Generate narrative
+    # LLM Call 3: Generate narrative (separate LLM call)
     progress_id = await send_step(
         bot, chat_id, 1, 4,
         "📄 Генерирую описание процесса",
-        "LLM формирует HTML-нарратив: цель, этапы, роли, системы, метрики, боли...",
+        "LLM формирует текстовое описание: цель, этапы, роли, системы, метрики, боли...",
         progress_id,
     )
     narrative = await generate_narrative(process.name, model_data)
 
-    # LLM Call 4: Generate Mermaid
+    # LLM Call 4: Generate Mermaid diagram (separate LLM call)
     progress_id = await send_step(
         bot, chat_id, 2, 4,
         "📊 Генерирую диаграмму процесса",
@@ -245,14 +279,15 @@ async def trigger_asis_generation(
     )
     mermaid_code = await generate_mermaid(process.name, model_data)
 
-    # Publish page
+    # Publish HTML page (separate step — assembles narrative + diagram)
     progress_id = await send_step(
         bot, chat_id, 3, 4,
         "🌐 Публикую страницу",
-        "Собираю HTML из нарратива и диаграммы, сохраняю файл...",
+        "Собираю HTML из описания и диаграммы, сохраняю файл...",
         progress_id,
     )
 
+    url = None
     async with async_session() as db:
         page = PublishedPage(process_id=process_id, mermaid_code=mermaid_code)
         db.add(page)
@@ -274,7 +309,7 @@ async def trigger_asis_generation(
 
         await db.commit()
 
-    # LLM Call 5: Generate opportunities
+    # LLM Call 5: Generate opportunities (separate LLM call)
     progress_id = await send_step(
         bot, chat_id, 4, 4,
         "🔍 Ищу возможности автоматизации",
@@ -290,7 +325,12 @@ async def _generate_and_show_opportunities(
     page_url: str | None = None,
     progress_id: int | None = None,
 ) -> None:
-    """Generate automation opportunities and show results."""
+    """Generate automation opportunities and show results.
+
+    Edits the same progress message to show final result with AS-IS link.
+    """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
     async with async_session() as db:
         process = await db.get(Process, process_id)
         result = await db.execute(
@@ -304,43 +344,35 @@ async def _generate_and_show_opportunities(
 
     opps = await generate_opportunities(process.name, model_data)
 
-    # Delete progress message
-    if progress_id:
-        await delete_messages(bot, chat_id, [progress_id])
-
-    if not opps:
-        await bot.send_message(
-            chat_id=chat_id,
-            text="Не удалось выявить точки автоматизации.",
-        )
-        return
-
     # Save opportunities
     async with async_session() as db:
         process = await db.get(Process, process_id)
-        process.status = ProcessStatus.AUTOMATION_SELECTION_IN_PROGRESS
 
-        for opp_data in opps:
-            opp_type = None
-            try:
-                opp_type = OpportunityType(opp_data.get("type", ""))
-            except ValueError:
-                pass
+        if opps:
+            process.status = ProcessStatus.AUTOMATION_SELECTION_IN_PROGRESS
 
-            opp = AutomationOpportunity(
-                process_id=process_id,
-                stage_id=opp_data.get("stage_id"),
-                title=opp_data.get("title", ""),
-                opp_type=opp_type,
-                problem=opp_data.get("problem"),
-                description=opp_data.get("description"),
-                expected_benefit=opp_data.get("expected_benefit"),
-                status=OpportunityStatus.PROPOSED,
-            )
-            db.add(opp)
+            for opp_data in opps:
+                opp_type = None
+                try:
+                    opp_type = OpportunityType(opp_data.get("type", ""))
+                except ValueError:
+                    pass
+
+                opp = AutomationOpportunity(
+                    process_id=process_id,
+                    stage_id=opp_data.get("stage_id"),
+                    title=opp_data.get("title", ""),
+                    opp_type=opp_type,
+                    problem=opp_data.get("problem"),
+                    description=opp_data.get("description"),
+                    expected_benefit=opp_data.get("expected_benefit"),
+                    status=OpportunityStatus.PROPOSED,
+                )
+                db.add(opp)
+
         await db.commit()
 
-    # Show AS-IS result + first opportunity
+    # Edit progress message into final result with AS-IS link
     if page_url:
         keyboard = InlineKeyboardMarkup(
             [
@@ -353,19 +385,44 @@ async def _generate_and_show_opportunities(
                 ],
             ]
         )
-        await bot.send_message(
+        text = (
+            f"✅ AS-IS по процессу *{process.name}* готов!\n\n"
+            f"Страница: {page_url}\n\n"
+            "Теперь выберите, какие точки автоматизации вам интересны."
+        )
+
+        if progress_id:
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=progress_id,
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown",
+                )
+                # Store the updated bot message id
+                ctx = await get_chat_context(chat_id) or {}
+                ctx["bot_message_id"] = progress_id
+                await save_chat_context(chat_id, ctx)
+                return
+            except Exception:
+                pass
+
+        msg = await bot.send_message(
             chat_id=chat_id,
-            text=(
-                f"✅ AS-IS по процессу *{process.name}* готов!\n\n"
-                f"Страница: {page_url}\n\n"
-                "Теперь выберите, какие точки автоматизации вам интересны."
-            ),
+            text=text,
             reply_markup=keyboard,
             parse_mode="Markdown",
         )
-
-    from bot.handlers.opportunities import send_next_opportunity
-    await send_next_opportunity(chat_id, process_id, bot)
+        ctx = await get_chat_context(chat_id) or {}
+        ctx["bot_message_id"] = msg.message_id
+        await save_chat_context(chat_id, ctx)
+    elif not opps:
+        await send_progress(
+            bot, chat_id,
+            "Не удалось выявить точки автоматизации.",
+            progress_id,
+        )
 
 
 def _model_to_dict(m: AsIsModel) -> dict:

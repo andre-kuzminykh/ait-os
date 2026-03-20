@@ -367,8 +367,9 @@ class TestFR24_SendUrl:
 
             await trigger_asis_generation(99999, seed_process.id, bot)
 
-        # Find the message with inline keyboard
-        for call in bot.send_message.call_args_list:
+        # Find the message with inline keyboard (may be in edit or send)
+        all_calls = list(bot.send_message.call_args_list) + list(bot.edit_message_text.call_args_list)
+        for call in all_calls:
             kwargs = call[1]
             markup = kwargs.get("reply_markup")
             if markup and hasattr(markup, "inline_keyboard"):

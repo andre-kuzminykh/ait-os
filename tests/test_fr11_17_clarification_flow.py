@@ -287,12 +287,22 @@ class TestFR16_PauseResume:
 
         bot = make_bot_mock()
 
+        # Clear any stale chat context
+        from bot.handlers.callbacks import _chat_contexts
+        _chat_contexts.pop(99999, None)
+
         from bot.handlers.clarification import handle_pause
 
         await handle_pause(99999, seed_process.id, bot)
 
-        bot.send_message.assert_called_once()
-        text = bot.send_message.call_args[1]["text"]
+        # handle_pause edits bot_message_id if present, otherwise sends new
+        total = bot.send_message.call_count + bot.edit_message_text.call_count
+        assert total >= 1
+        # Check the text
+        if bot.send_message.call_count:
+            text = bot.send_message.call_args[1]["text"]
+        else:
+            text = bot.edit_message_text.call_args[1]["text"]
         assert "приостановлена" in text.lower()
 
     @pytest.mark.asyncio
