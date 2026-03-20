@@ -550,6 +550,70 @@ class TestFR39_ProcessDetailView:
         pytest.fail("No 'back_to_list' button found in process detail")
 
     @pytest.mark.asyncio
+    async def test_process_detail_uses_html_parse_mode(
+        self, db_session, patch_db, seed_process, seed_respondent,
+    ):
+        """FR-39.5: Process detail uses parse_mode='HTML'."""
+        bot = make_bot_mock()
+        from bot.handlers.start import show_process_detail
+        await show_process_detail(
+            99999, seed_process.id, 200, bot, seed_respondent.telegram_user_id,
+        )
+
+        for call in list(bot.edit_message_text.call_args_list) + list(bot.send_message.call_args_list):
+            kwargs = call[1]
+            if "parse_mode" in kwargs:
+                assert kwargs["parse_mode"] == "HTML"
+                return
+        pytest.fail("No parse_mode found in process detail call")
+
+    @pytest.mark.asyncio
+    async def test_process_detail_asis_link_is_html_hyperlink(
+        self, db_session, patch_db, seed_process, seed_respondent,
+    ):
+        """FR-39.6: Published process shows AS-IS as HTML <a href> hyperlink."""
+        seed_process.status = ProcessStatus.ASIS_PUBLISHED
+        await db_session.flush()
+
+        page = PublishedPage(
+            process_id=seed_process.id,
+            html_url="http://example.com/test.html",
+        )
+        db_session.add(page)
+        await db_session.commit()
+
+        bot = make_bot_mock()
+        from bot.handlers.start import show_process_detail
+        await show_process_detail(
+            99999, seed_process.id, 200, bot, seed_respondent.telegram_user_id,
+        )
+
+        for call in list(bot.edit_message_text.call_args_list) + list(bot.send_message.call_args_list):
+            kwargs = call[1]
+            text = kwargs.get("text", "")
+            if '<a href="http://example.com/test.html">' in text:
+                return
+        pytest.fail("No HTML hyperlink found in process detail text")
+
+    @pytest.mark.asyncio
+    async def test_process_detail_bold_name(
+        self, db_session, patch_db, seed_process, seed_respondent,
+    ):
+        """FR-39.7: Process name in detail card is wrapped in <b> tags."""
+        bot = make_bot_mock()
+        from bot.handlers.start import show_process_detail
+        await show_process_detail(
+            99999, seed_process.id, 200, bot, seed_respondent.telegram_user_id,
+        )
+
+        for call in list(bot.edit_message_text.call_args_list) + list(bot.send_message.call_args_list):
+            kwargs = call[1]
+            text = kwargs.get("text", "")
+            if f"<b>{seed_process.name}</b>" in text:
+                return
+        pytest.fail("No <b> tag around process name in detail card")
+
+    @pytest.mark.asyncio
     async def test_process_list_shows_status_icons(
         self, db_session, patch_db, seed_session, seed_process, seed_respondent,
     ):
