@@ -56,6 +56,28 @@ SESSION_PAUSED = (
 )
 
 # ---------------------------------------------------------------------------
+# Clarification Q&A flow (5 sequential questions)
+# ---------------------------------------------------------------------------
+CLARIFICATION_GENERATING = "⏳ Формирую уточняющие вопросы"
+CLARIFICATION_GENERATING_DETAIL = "LLM анализирует пробелы в модели..."
+
+CLARIFICATION_QUESTION_PREFIX = "❓ Вопрос {num} из {total}"
+CLARIFICATION_SUGGESTIONS = "\n\n💡 *Возможные варианты:*\n{suggestions}"
+CLARIFICATION_ANSWER_HINT = (
+    "\n\n_Ответьте текстом или голосовым сообщением, "
+    "или нажмите «Пропустить»._"
+)
+
+CLARIFICATION_EXTRACTING = "⏳ Обрабатываю ответ"
+CLARIFICATION_EXTRACTING_DETAIL = "Извлекаю данные из ответа и обновляю модель..."
+
+CLARIFICATION_SKIPPED = "⏭ Пропущено"
+CLARIFICATION_DONE = "✅ Уточнение завершено"
+CLARIFICATION_DONE_DETAIL = "Все вопросы обработаны, перехожу к генерации..."
+
+CLARIFICATION_NO_QUESTIONS = "✅ Модель выглядит полной, дополнительные вопросы не нужны."
+
+# ---------------------------------------------------------------------------
 # AS-IS generation progress
 # ---------------------------------------------------------------------------
 GEN_NARRATIVE = "📄 Генерирую описание процесса"

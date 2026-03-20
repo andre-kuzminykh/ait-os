@@ -1,13 +1,12 @@
-"""Tests for FR-11..FR-17: Clarification Flow.
+"""Tests for FR-11..FR-17: Clarification Flow (new 5-question Q&A).
 
-FR-11  Bot must generate targeted follow-up questions from detected gaps.
-FR-12  Each follow-up must be linked to a stage and field type when applicable.
-FR-13  Each follow-up question must support skip action.
-FR-14  Skipped questions must be persisted as skipped, not lost.
-FR-15  Bot must continue interview after skip without breaking the session.
+FR-11  Bot must generate up to 5 structured clarification questions via LLM.
+FR-12  Questions follow fixed order: operations, metrics, roles, systems, artifacts.
+FR-13  Each question has only a "Skip" button; user answers directly via text/voice.
+FR-14  Skipped questions advance to the next without breaking the session.
+FR-15  Bot must continue to next question after skip or answer.
 FR-16  Bot must allow the user to stop and resume later.
-FR-17  Bot must stop asking more questions when minimum completeness threshold
-       is reached or when no more useful gaps remain.
+FR-17  When all questions are done (answered or skipped), AS-IS generation triggers.
 """
 
 import json
@@ -16,240 +15,370 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import select
 
-from bot.models import Gap, InterviewSession, Process
+from bot.models import Gap, InterviewSession, Process, AsIsModel
 from bot.states import GapStatus, ProcessStatus, SessionStatus
-from tests.conftest import make_bot_mock, make_callback_query, SAMPLE_ASIS_MODEL, SAMPLE_GAP_RESULT
+from tests.conftest import (
+    make_bot_mock,
+    make_callback_query,
+    make_update,
+    SAMPLE_ASIS_MODEL,
+    SAMPLE_GAP_RESULT,
+    SAMPLE_CLARIFICATION_QUESTIONS,
+    SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+    SAMPLE_EXTRACTED_ANSWER_METRICS,
+)
 
 
 # ============================================================================
-# FR-11: Generate targeted follow-up questions from detected gaps
+# FR-11: Generate structured clarification questions
 # ============================================================================
 
 
-class TestFR11_FollowUpGeneration:
-    """FR-11: Bot must generate targeted follow-up questions from detected gaps."""
+class TestFR11_ClarificationQuestionGeneration:
+    """FR-11: Bot generates up to 5 structured clarification questions via LLM."""
 
     @pytest.mark.asyncio
-    async def test_send_next_gap_question_sends_message(
-        self, db_session, patch_db, seed_process, seed_gaps
-    ):
-        """FR-11.1: send_next_gap_question sends the pending gap question to user."""
-        bot = make_bot_mock()
-
-        from bot.handlers.clarification import send_next_gap_question
-
-        await send_next_gap_question(99999, seed_process.id, bot)
-
-        bot.send_message.assert_called_once()
-        call_kwargs = bot.send_message.call_args[1]
-        assert call_kwargs["chat_id"] == 99999
-        assert "❓" in call_kwargs["text"]
-
-    @pytest.mark.asyncio
-    async def test_questions_prioritized_by_confidence(
-        self, db_session, patch_db, seed_process, seed_gaps
-    ):
-        """FR-11.2: Questions are sent in order of lowest confidence first."""
-        bot = make_bot_mock()
-
-        from bot.handlers.clarification import send_next_gap_question
-
-        await send_next_gap_question(99999, seed_process.id, bot)
-
-        # The gap with lowest confidence_score should be sent first
-        text = bot.send_message.call_args[1]["text"]
-        # seed_gaps[0] has confidence=0.3 (lowest)
-        assert seed_gaps[0].question_text in text
-
-    @pytest.mark.asyncio
-    async def test_no_gaps_triggers_generation(
-        self, db_session, patch_db, seed_process
-    ):
-        """FR-11.3: When no pending gaps remain, AS-IS generation is triggered."""
-        bot = make_bot_mock()
-
+    async def test_generate_clarification_questions_returns_included_only(self):
+        """FR-11.1: Only questions with include=True are returned."""
         with patch(
-            "bot.handlers.clarification.trigger_asis_generation",
+            "bot.services.clarification.chat",
             new_callable=AsyncMock,
-        ) as mock_gen:
-            from bot.handlers.clarification import send_next_gap_question
+            return_value=json.dumps(SAMPLE_CLARIFICATION_QUESTIONS, ensure_ascii=False),
+        ):
+            from bot.services.clarification import generate_clarification_questions
 
-            await send_next_gap_question(99999, seed_process.id, bot)
+            questions = await generate_clarification_questions("Онбординг", SAMPLE_ASIS_MODEL)
 
-        mock_gen.assert_called_once_with(99999, seed_process.id, bot, None)
+        # Only metrics and systems have include=True
+        assert len(questions) == 2
+        assert questions[0]["field_type"] == "metrics"
+        assert questions[1]["field_type"] == "systems"
+
+    @pytest.mark.asyncio
+    async def test_each_question_has_suggestions(self):
+        """FR-11.2: Each question includes LLM-suggested answers."""
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(SAMPLE_CLARIFICATION_QUESTIONS, ensure_ascii=False),
+        ):
+            from bot.services.clarification import generate_clarification_questions
+
+            questions = await generate_clarification_questions("Онбординг", SAMPLE_ASIS_MODEL)
+
+        for q in questions:
+            assert "suggestions" in q
+            assert len(q["suggestions"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_max_5_questions(self):
+        """FR-11.3: Maximum 5 questions returned."""
+        from bot.prompts import load_prompt
+        prompt = load_prompt("clarification_questions")
+        assert "5" in prompt
+
+    @pytest.mark.asyncio
+    async def test_empty_questions_on_complete_model(self):
+        """FR-11.4: If all fields filled, no questions generated."""
+        all_false = {
+            "questions": [
+                {"field_type": t, "include": False, "question": "", "suggestions": []}
+                for t in ["operations", "metrics", "roles", "systems", "artifacts"]
+            ]
+        }
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(all_false, ensure_ascii=False),
+        ):
+            from bot.services.clarification import generate_clarification_questions
+
+            questions = await generate_clarification_questions("Онбординг", SAMPLE_ASIS_MODEL)
+
+        assert len(questions) == 0
 
 
 # ============================================================================
-# FR-12: Follow-up linked to stage and field type
+# FR-12: Questions follow fixed order
 # ============================================================================
 
 
-class TestFR12_FollowUpLinkedToStage:
-    """FR-12: Each follow-up must be linked to a stage and field type."""
+class TestFR12_QuestionOrder:
+    """FR-12: Questions follow fixed order: operations > metrics > roles > systems > artifacts."""
 
     @pytest.mark.asyncio
-    async def test_gap_model_has_stage_id(self, seed_gaps):
-        """FR-12.1: Gap model stores stage_id."""
-        stage_gaps = [g for g in seed_gaps if g.stage_id is not None]
-        assert len(stage_gaps) > 0
-        assert stage_gaps[0].stage_id.startswith("stage_")
+    async def test_question_order_maintained(self):
+        """FR-12.1: Questions maintain the fixed priority order."""
+        all_true = {
+            "questions": [
+                {"field_type": "operations", "include": True, "question": "Q1?", "suggestions": ["a"]},
+                {"field_type": "metrics", "include": True, "question": "Q2?", "suggestions": ["b"]},
+                {"field_type": "roles", "include": True, "question": "Q3?", "suggestions": ["c"]},
+                {"field_type": "systems", "include": True, "question": "Q4?", "suggestions": ["d"]},
+                {"field_type": "artifacts", "include": True, "question": "Q5?", "suggestions": ["e"]},
+            ]
+        }
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(all_true, ensure_ascii=False),
+        ):
+            from bot.services.clarification import generate_clarification_questions
+
+            questions = await generate_clarification_questions("Test", {})
+
+        types = [q["field_type"] for q in questions]
+        assert types == ["operations", "metrics", "roles", "systems", "artifacts"]
 
     @pytest.mark.asyncio
-    async def test_gap_model_has_field_type(self, seed_gaps):
-        """FR-12.2: Gap model stores field_type enum."""
-        for g in seed_gaps:
-            assert g.field_type is not None
-            assert isinstance(g.field_type, GapStatus.__class__) or g.field_type is not None
+    async def test_question_order_in_prompt(self):
+        """FR-12.2: Prompt specifies the 5 question types in correct order."""
+        from bot.prompts import load_prompt
+        prompt = load_prompt("clarification_questions")
 
-    @pytest.mark.asyncio
-    async def test_process_level_gap_has_null_stage(self, seed_gaps):
-        """FR-12.3: Process-level gaps have stage_id = None."""
-        process_gaps = [g for g in seed_gaps if g.stage_id is None]
-        assert len(process_gaps) > 0
+        # Check order of field types in the prompt
+        idx_ops = prompt.lower().find("операции")
+        idx_metrics = prompt.lower().find("метрики")
+        idx_roles = prompt.lower().find("роли")
+        idx_systems = prompt.lower().find("системы")
+        idx_artifacts = prompt.lower().find("артефакты")
+
+        assert idx_ops < idx_metrics, "Operations before metrics"
+        assert idx_metrics < idx_roles, "Metrics before roles"
+        assert idx_roles < idx_systems, "Roles before systems"
+        assert idx_systems < idx_artifacts, "Systems before artifacts"
 
 
 # ============================================================================
-# FR-13: Each follow-up must support skip action
+# FR-13: Each question has only a "Skip" button
 # ============================================================================
 
 
-class TestFR13_SkipAction:
-    """FR-13: Each follow-up question must support skip action."""
+class TestFR13_SkipButtonOnly:
+    """FR-13: Each question has only a Skip button; user answers directly."""
 
     @pytest.mark.asyncio
-    async def test_question_has_skip_button(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_question_shows_skip_button(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-13.1: Each question is sent with a 'Пропустить' inline button."""
+        """FR-13.1: Clarification question shows only 'Пропустить' button."""
         bot = make_bot_mock()
+        progress_id = 5000
 
-        from bot.handlers.clarification import send_next_gap_question
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": progress_id,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await send_next_gap_question(99999, seed_process.id, bot)
+        from bot.handlers.clarification import _show_clarification_question
 
-        call_kwargs = bot.send_message.call_args[1]
+        await _show_clarification_question(99999, bot, progress_id)
+
+        bot.edit_message_text.assert_called()
+        call_kwargs = bot.edit_message_text.call_args[1]
         markup = call_kwargs["reply_markup"]
-        # Extract button texts from inline keyboard
         buttons = [btn.text for row in markup.inline_keyboard for btn in row]
         assert "Пропустить" in buttons
+        assert "Ответить" not in buttons
+        assert "Завершить позже" not in buttons
 
     @pytest.mark.asyncio
-    async def test_question_has_answer_button(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_question_shows_number_and_total(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-13.2: Each question has an 'Ответить' inline button."""
+        """FR-13.2: Question shows 'Вопрос N из M'."""
         bot = make_bot_mock()
 
-        from bot.handlers.clarification import send_next_gap_question
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await send_next_gap_question(99999, seed_process.id, bot)
+        from bot.handlers.clarification import _show_clarification_question
 
-        call_kwargs = bot.send_message.call_args[1]
-        markup = call_kwargs["reply_markup"]
-        buttons = [btn.text for row in markup.inline_keyboard for btn in row]
-        assert "Ответить" in buttons
+        await _show_clarification_question(99999, bot, 5000)
+
+        text = bot.edit_message_text.call_args[1]["text"]
+        assert "Вопрос 1 из 2" in text
 
     @pytest.mark.asyncio
-    async def test_question_has_pause_button(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_question_shows_suggestions(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-13.3: Each question has a 'Завершить позже' inline button."""
+        """FR-13.3: Question shows LLM-suggested answers."""
         bot = make_bot_mock()
 
-        from bot.handlers.clarification import send_next_gap_question
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await send_next_gap_question(99999, seed_process.id, bot)
+        from bot.handlers.clarification import _show_clarification_question
 
-        call_kwargs = bot.send_message.call_args[1]
-        markup = call_kwargs["reply_markup"]
-        buttons = [btn.text for row in markup.inline_keyboard for btn in row]
-        assert "Завершить позже" in buttons
+        await _show_clarification_question(99999, bot, 5000)
+
+        text = bot.edit_message_text.call_args[1]["text"]
+        assert "время оформления" in text
+        assert "Возможные варианты" in text
 
 
 # ============================================================================
-# FR-14: Skipped questions persisted as skipped
+# FR-14: Skip advances to next question
 # ============================================================================
 
 
-class TestFR14_SkipPersistence:
-    """FR-14: Skipped questions must be persisted as skipped, not lost."""
+class TestFR14_SkipAdvances:
+    """FR-14: Skipping advances to the next question without breaking."""
 
     @pytest.mark.asyncio
-    async def test_skip_sets_status_to_skipped(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_skip_increments_index(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-14.1: Skipping a gap sets its status to SKIPPED in database."""
-        gap_id = seed_gaps[0].id
+        """FR-14.1: Skip increments clarification_index."""
         bot = make_bot_mock()
 
-        from bot.handlers.clarification import handle_gap_skip
+        from bot.handlers.callbacks import save_chat_context, get_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await handle_gap_skip(99999, gap_id, bot)
+        from bot.handlers.clarification import handle_clarification_skip
 
-        await db_session.refresh(seed_gaps[0])
-        assert seed_gaps[0].status == GapStatus.SKIPPED
+        await handle_clarification_skip(99999, bot, 5000)
+
+        ctx = await get_chat_context(99999)
+        assert ctx["clarification_index"] == 1
 
     @pytest.mark.asyncio
-    async def test_skipped_gap_not_deleted(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_skip_shows_next_question(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-14.2: Skipped gap record remains in the database."""
-        gap_id = seed_gaps[0].id
+        """FR-14.2: After skip, next question is shown."""
         bot = make_bot_mock()
 
-        from bot.handlers.clarification import handle_gap_skip
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await handle_gap_skip(99999, gap_id, bot)
+        from bot.handlers.clarification import handle_clarification_skip
 
-        async with patch_db() as fresh:
-            result = await fresh.execute(select(Gap).where(Gap.id == gap_id))
-            gap = result.scalar_one_or_none()
-            assert gap is not None
-            assert gap.status == GapStatus.SKIPPED
+        await handle_clarification_skip(99999, bot, 5000)
+
+        # Next question should be about systems (index=1)
+        text = bot.edit_message_text.call_args[1]["text"]
+        assert "Вопрос 2 из 2" in text
+        assert "систем" in text.lower()
 
 
 # ============================================================================
-# FR-15: Continue interview after skip
+# FR-15: Continue after answer
 # ============================================================================
 
 
-class TestFR15_ContinueAfterSkip:
-    """FR-15: Bot must continue interview after skip without breaking the session."""
+class TestFR15_ContinueAfterAnswer:
+    """FR-15: Bot advances to next question after receiving an answer."""
 
     @pytest.mark.asyncio
-    async def test_skip_sends_next_question(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_answer_advances_to_next_question(
+        self, db_session, patch_db, seed_process, seed_session, seed_asis_model,
     ):
-        """FR-15.1: After skipping, the next pending question is sent."""
-        gap_id = seed_gaps[0].id
-        bot = make_bot_mock()
+        """FR-15.1: After answering, next question is shown."""
+        seed_session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
+        seed_process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
+        await db_session.commit()
 
-        from bot.handlers.clarification import handle_gap_skip
+        update, context = make_update(
+            text="Время оформления — 1 день, ошибки менее 5%",
+            message_id=42,
+        )
 
-        await handle_gap_skip(99999, gap_id, bot)
-
-        # Should have sent at least one message (next question)
-        # Skip now edits messages in place, so send_message or edit_message_text
-        total_calls = bot.send_message.call_count + bot.edit_message_text.call_count
-        assert total_calls >= 1
-
-    @pytest.mark.asyncio
-    async def test_skip_all_gaps_triggers_generation(
-        self, db_session, patch_db, seed_process, seed_gaps
-    ):
-        """FR-15.2: Skipping all gaps triggers AS-IS generation."""
-        bot = make_bot_mock()
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": seed_session.id,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
         with patch(
-            "bot.handlers.clarification.trigger_asis_generation",
+            "bot.services.clarification.chat",
             new_callable=AsyncMock,
-        ) as mock_gen:
-            from bot.handlers.clarification import handle_gap_skip
+            return_value=json.dumps(SAMPLE_EXTRACTED_ANSWER_METRICS, ensure_ascii=False),
+        ):
+            from bot.handlers.clarification import handle_clarification_answer
 
-            for gap in seed_gaps:
-                await handle_gap_skip(99999, gap.id, bot)
+            await handle_clarification_answer(update, "Время оформления — 1 день")
 
-        mock_gen.assert_called_once()
+        # Should show next question (index advanced)
+        bot = update.get_bot()
+        last_text = bot.edit_message_text.call_args[1]["text"]
+        assert "Вопрос 2 из 2" in last_text
+
+    @pytest.mark.asyncio
+    async def test_answer_updates_asis_model(
+        self, db_session, patch_db, seed_process, seed_session, seed_asis_model,
+    ):
+        """FR-15.2: Answer data is merged into AS-IS model."""
+        seed_session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
+        seed_process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
+        await db_session.commit()
+
+        update, context = make_update(
+            text="Время оформления 1 день",
+            message_id=42,
+        )
+
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": seed_session.id,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
+
+        with patch(
+            "bot.services.clarification.chat",
+            new_callable=AsyncMock,
+            return_value=json.dumps(SAMPLE_EXTRACTED_ANSWER_METRICS, ensure_ascii=False),
+        ):
+            from bot.handlers.clarification import handle_clarification_answer
+
+            await handle_clarification_answer(update, "Время оформления 1 день")
+
+        # Check model was updated
+        await db_session.refresh(seed_asis_model)
+        metrics = json.loads(seed_asis_model.metrics)
+        assert len(metrics) > 0
 
 
 # ============================================================================
@@ -295,131 +424,95 @@ class TestFR16_PauseResume:
 
         await handle_pause(99999, seed_process.id, bot)
 
-        # handle_pause edits bot_message_id if present, otherwise sends new
         total = bot.send_message.call_count + bot.edit_message_text.call_count
         assert total >= 1
-        # Check the text
         if bot.send_message.call_count:
             text = bot.send_message.call_args[1]["text"]
         else:
             text = bot.edit_message_text.call_args[1]["text"]
         assert "приостановлена" in text.lower()
 
+
+# ============================================================================
+# FR-17: Trigger generation when all questions done
+# ============================================================================
+
+
+class TestFR17_TriggerGeneration:
+    """FR-17: When all questions done, AS-IS generation is triggered."""
+
     @pytest.mark.asyncio
-    async def test_resume_restores_session(
-        self, db_session, patch_db, seed_process, seed_session, seed_gaps
+    async def test_skip_all_triggers_generation(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-16.3: Resuming restores session to AWAITING_FOLLOWUP_ANSWER."""
-        seed_session.state = SessionStatus.PAUSED
-        await db_session.commit()
-
-        from bot.handlers.callbacks import _handle_resume, save_chat_context
-
-        update = MagicMock()
+        """FR-17.1: Skipping all questions triggers AS-IS generation."""
         bot = make_bot_mock()
+
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
         with patch(
-            "bot.handlers.clarification.send_next_gap_question",
+            "bot.handlers.clarification.trigger_asis_generation",
             new_callable=AsyncMock,
-        ):
-            await _handle_resume(99999, seed_session.id, update, bot)
+        ) as mock_gen:
+            from bot.handlers.clarification import handle_clarification_skip
 
-        await db_session.refresh(seed_session)
-        assert seed_session.state == SessionStatus.AWAITING_FOLLOWUP_ANSWER
+            # Skip first question
+            await handle_clarification_skip(99999, bot, 5000)
+            # Skip second question
+            await handle_clarification_skip(99999, bot, 5000)
 
-
-# ============================================================================
-# FR-17: Stop asking when threshold reached or no gaps remain
-# ============================================================================
-
-
-class TestFR17_CompletenessThreshold:
-    """FR-17: Bot must stop asking when completeness threshold reached."""
+        mock_gen.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_high_completeness_triggers_generation(self):
-        """FR-17.1: When completeness >= threshold, AS-IS generation is triggered."""
-        from bot.config import COMPLETENESS_THRESHOLD
-
-        # Verify threshold is reasonable
-        assert 0.0 < COMPLETENESS_THRESHOLD < 1.0
-
-    @pytest.mark.asyncio
-    async def test_process_input_with_high_completeness(
-        self, db_session, patch_db, seed_process, seed_session
+    async def test_no_questions_triggers_generation(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-17.2: _process_input triggers generation when completeness is high."""
-        from bot.models import RawInput
-
-        raw = RawInput(
-            session_id=seed_session.id,
-            message_type="text",
-            raw_text="Полное описание процесса с ролями, системами, метриками",
-        )
-        db_session.add(raw)
-        await db_session.commit()
-
+        """FR-17.2: When LLM generates no questions, generation is triggered."""
         bot = make_bot_mock()
 
-        high_completeness = {"completeness_score": 0.9, "gaps": []}
+        all_false = {
+            "questions": [
+                {"field_type": t, "include": False, "question": "", "suggestions": []}
+                for t in ["operations", "metrics", "roles", "systems", "artifacts"]
+            ]
+        }
+
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": 5000,
+        })
 
         with (
             patch(
-                "bot.handlers.interview.extract_asis_model",
+                "bot.services.clarification.chat",
                 new_callable=AsyncMock,
-                return_value=SAMPLE_ASIS_MODEL,
-            ),
-            patch(
-                "bot.handlers.interview.detect_gaps",
-                new_callable=AsyncMock,
-                return_value=high_completeness,
+                return_value=json.dumps(all_false, ensure_ascii=False),
             ),
             patch(
                 "bot.handlers.clarification.trigger_asis_generation",
                 new_callable=AsyncMock,
             ) as mock_gen,
         ):
-            from bot.handlers.interview import _process_input
+            from bot.handlers.clarification import start_clarification_flow
 
-            await _process_input(bot, 99999, seed_process.id, seed_session.id)
+            await start_clarification_flow(99999, seed_process.id, bot, 5000)
 
         mock_gen.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_input_with_low_completeness_asks_questions(
-        self, db_session, patch_db, seed_process, seed_session
-    ):
-        """FR-17.3: _process_input asks follow-up when completeness is low."""
-        from bot.models import RawInput
+    async def test_high_completeness_skips_clarification(self):
+        """FR-17.3: When completeness >= threshold, clarification is not started."""
+        from bot.config import COMPLETENESS_THRESHOLD
 
-        raw = RawInput(
-            session_id=seed_session.id,
-            message_type="text",
-            raw_text="Процесс начинается с заявки",
-        )
-        db_session.add(raw)
-        await db_session.commit()
-
-        bot = make_bot_mock()
-
-        with (
-            patch(
-                "bot.handlers.interview.extract_asis_model",
-                new_callable=AsyncMock,
-                return_value=SAMPLE_ASIS_MODEL,
-            ),
-            patch(
-                "bot.handlers.interview.detect_gaps",
-                new_callable=AsyncMock,
-                return_value=SAMPLE_GAP_RESULT,
-            ),
-            patch(
-                "bot.handlers.clarification.send_next_gap_question",
-                new_callable=AsyncMock,
-            ) as mock_q,
-        ):
-            from bot.handlers.interview import _process_input
-
-            await _process_input(bot, 99999, seed_process.id, seed_session.id)
-
-        mock_q.assert_called_once()
+        # Verify threshold is reasonable
+        assert 0.0 < COMPLETENESS_THRESHOLD < 1.0

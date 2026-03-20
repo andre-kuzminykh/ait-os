@@ -16,6 +16,8 @@ from tests.conftest import (
     SAMPLE_MERMAID,
     SAMPLE_NARRATIVE,
     SAMPLE_OPPORTUNITIES,
+    SAMPLE_CLARIFICATION_QUESTIONS,
+    SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
     make_bot_mock,
     make_update,
 )
@@ -75,6 +77,10 @@ class TestFR40_MonotonicCompleteness:
                 "bot.services.gap_detector.chat",
                 new_callable=AsyncMock,
                 return_value=json.dumps(lower_gap_result, ensure_ascii=False),
+            ),
+            patch(
+                "bot.handlers.clarification.start_clarification_flow",
+                new_callable=AsyncMock,
             ),
         ):
             from bot.handlers.interview import _process_input
@@ -174,6 +180,10 @@ class TestFR40_MonotonicCompleteness:
                 new_callable=AsyncMock,
                 return_value=json.dumps(lower_result, ensure_ascii=False),
             ),
+            patch(
+                "bot.handlers.clarification.start_clarification_flow",
+                new_callable=AsyncMock,
+            ),
         ):
             from bot.handlers.interview import _process_input
 
@@ -193,35 +203,34 @@ class TestFR40_MonotonicCompleteness:
 # ============================================================================
 
 
-class TestFR41_StructuredGapQuestions:
-    """FR-41: Gap questions must only target actually empty fields."""
+class TestFR41_StructuredClarificationQuestions:
+    """FR-41: Clarification questions must only target actually empty fields."""
 
     @pytest.mark.asyncio
-    async def test_gap_prompt_mentions_stage_fields(self):
-        """FR-41.1: The gap detector prompt instructs LLM to check per-stage fields."""
+    async def test_prompt_mentions_stage_fields(self):
+        """FR-41.1: The clarification prompt checks per-stage fields."""
         from bot.prompts import load_prompt
-        prompt = load_prompt("gap_detector")
+        prompt = load_prompt("clarification_questions")
 
-        # Prompt must mention checking each stage for these fields
-        assert "owner_role" in prompt or "Роль" in prompt
-        assert "systems" in prompt or "Система" in prompt
-        assert "metrics" in prompt or "Метрик" in prompt
-        assert "inputs" in prompt or "Артефакт" in prompt
-        assert "outputs" in prompt or "выход" in prompt
+        assert "owner_role" in prompt or "Роль" in prompt or "роли" in prompt.lower()
+        assert "systems" in prompt or "Система" in prompt or "систем" in prompt.lower()
+        assert "metrics" in prompt or "Метрик" in prompt or "метрик" in prompt.lower()
+        assert "inputs" in prompt or "Артефакт" in prompt or "артефакт" in prompt.lower()
+        assert "outputs" in prompt or "выход" in prompt or "выход" in prompt.lower()
 
     @pytest.mark.asyncio
-    async def test_gap_prompt_requires_empty_fields_only(self):
+    async def test_prompt_requires_empty_fields_only(self):
         """FR-41.2: Prompt instructs to ask ONLY about empty fields."""
         from bot.prompts import load_prompt
-        prompt = load_prompt("gap_detector")
+        prompt = load_prompt("clarification_questions")
 
         assert "пуст" in prompt.lower() or "отсутств" in prompt.lower()
 
     @pytest.mark.asyncio
-    async def test_gap_prompt_has_max_5_questions(self):
-        """FR-41.3: Max 5 questions per call."""
+    async def test_prompt_has_max_5_questions(self):
+        """FR-41.3: Max 5 questions."""
         from bot.prompts import load_prompt
-        prompt = load_prompt("gap_detector")
+        prompt = load_prompt("clarification_questions")
 
         assert "5" in prompt
 
@@ -230,7 +239,10 @@ class TestFR41_StructuredGapQuestions:
         """FR-41.4: All prompts are loaded from separate .txt files."""
         from bot.prompts import load_prompt
 
-        for name in ["extractor", "gap_detector", "generator", "mermaid", "opportunities"]:
+        for name in [
+            "extractor", "gap_detector", "generator", "mermaid",
+            "opportunities", "clarification_questions", "answer_extractor",
+        ]:
             prompt = load_prompt(name)
             assert len(prompt) > 50, f"Prompt '{name}' should be non-trivial"
 
@@ -241,32 +253,40 @@ class TestFR41_StructuredGapQuestions:
 
 
 class TestFR42_QuestionPriority:
-    """FR-42: Questions prioritized: steps > roles > systems > metrics > artifacts."""
+    """FR-42: Questions prioritized: operations > metrics > roles > systems > artifacts."""
 
     @pytest.mark.asyncio
     async def test_priority_order_in_prompt(self):
-        """FR-42.1: Gap detector prompt specifies priority order in priority section."""
+        """FR-42.1: Clarification prompt specifies the 5 categories in order."""
         from bot.prompts import load_prompt
-        prompt = load_prompt("gap_detector")
+        prompt = load_prompt("clarification_questions")
 
-        # Find the priority section (numbered list 1-5)
-        priority_section = prompt[prompt.find("Группируй"):]
-        priority_lower = priority_section.lower()
+        # Find the numbered list items
+        prompt_lower = prompt.lower()
 
-        # Check that priority items appear in the correct order
-        idx_steps = priority_lower.find("шаг")
-        idx_roles = priority_lower.find("рол")
-        idx_systems = priority_lower.find("систем")
-        idx_metrics = priority_lower.find("метрик")
-        idx_artifacts = priority_lower.find("артефакт")
+        idx_ops = prompt_lower.find("операции") if prompt_lower.find("операции") >= 0 else prompt_lower.find("шаг")
+        idx_metrics = prompt_lower.find("метрики")
+        idx_roles = prompt_lower.find("роли")
+        idx_systems = prompt_lower.find("системы")
+        idx_artifacts = prompt_lower.find("артефакты")
 
-        assert idx_steps > -1, "Steps mentioned in priority section"
-        assert idx_roles > -1, "Roles mentioned in priority section"
+        assert idx_ops > -1, "Operations mentioned in prompt"
+        assert idx_metrics > -1, "Metrics mentioned in prompt"
+        assert idx_roles > -1, "Roles mentioned in prompt"
+        assert idx_systems > -1, "Systems mentioned in prompt"
+        assert idx_artifacts > -1, "Artifacts mentioned in prompt"
 
-        assert idx_steps < idx_roles, "Steps must come before roles"
+        assert idx_ops < idx_metrics, "Operations must come before metrics"
+        assert idx_metrics < idx_roles, "Metrics must come before roles"
         assert idx_roles < idx_systems, "Roles must come before systems"
-        assert idx_systems < idx_metrics, "Systems must come before metrics"
-        assert idx_metrics < idx_artifacts, "Metrics must come before artifacts"
+        assert idx_systems < idx_artifacts, "Systems must come before artifacts"
+
+    @pytest.mark.asyncio
+    async def test_service_question_order_constant(self):
+        """FR-42.2: QUESTION_ORDER constant matches expected order."""
+        from bot.services.clarification import QUESTION_ORDER
+
+        assert QUESTION_ORDER == ["operations", "metrics", "roles", "systems", "artifacts"]
 
 
 # ============================================================================
@@ -373,65 +393,82 @@ class TestFR35_SingleMessageEdit:
     """FR-35: All progress and questions are shown by editing one message."""
 
     @pytest.mark.asyncio
-    async def test_gap_question_edits_progress_message(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_clarification_question_edits_progress_message(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-35.1: Gap question replaces progress message via edit."""
+        """FR-35.1: Clarification question replaces progress message via edit."""
         bot = make_bot_mock()
         progress_msg_id = 5000
 
-        from bot.handlers.clarification import send_next_gap_question
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": progress_msg_id,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await send_next_gap_question(99999, seed_process.id, bot, progress_msg_id)
+        from bot.handlers.clarification import _show_clarification_question
 
-        # Should have edited the progress message, not sent a new one
+        await _show_clarification_question(99999, bot, progress_msg_id)
+
         bot.edit_message_text.assert_called()
         edit_kwargs = bot.edit_message_text.call_args[1]
         assert edit_kwargs["message_id"] == progress_msg_id
-        assert "❓" in edit_kwargs["text"]
+        assert "Вопрос" in edit_kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_skip_edits_same_message(
-        self, db_session, patch_db, seed_process, seed_gaps
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
         """FR-35.2: Skipping a question edits the same message to next question."""
-        gap_id = seed_gaps[0].id
         bot = make_bot_mock()
         msg_id = 6000
 
-        from bot.handlers.clarification import handle_gap_skip
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": 1,
+            "process_id": seed_process.id,
+            "bot_message_id": msg_id,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
+        })
 
-        await handle_gap_skip(99999, gap_id, bot, msg_id)
+        from bot.handlers.clarification import handle_clarification_skip
 
-        # Should have edited message_id=6000 to the next question
+        await handle_clarification_skip(99999, bot, msg_id)
+
         bot.edit_message_text.assert_called()
         edit_kwargs = bot.edit_message_text.call_args[1]
         assert edit_kwargs["message_id"] == msg_id
 
     @pytest.mark.asyncio
-    async def test_answer_prompt_edits_message(
-        self, db_session, patch_db, seed_process, seed_gaps
+    async def test_no_new_messages_during_clarification_flow(
+        self, db_session, patch_db, seed_process, seed_asis_model,
     ):
-        """FR-35.3: 'Answer' prompt edits the existing bot message."""
-        gap_id = seed_gaps[0].id
+        """FR-35.5: During clarification flow, bot.send_message is NOT called."""
         bot = make_bot_mock()
+        progress_msg_id = 9000
 
-        # Set up chat context with bot_message_id
         from bot.handlers.callbacks import save_chat_context
         await save_chat_context(99999, {
             "session_id": 1,
             "process_id": seed_process.id,
-            "pending_gap_id": gap_id,
-            "bot_message_id": 7000,
+            "bot_message_id": progress_msg_id,
+            "clarification_questions": SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED,
+            "clarification_index": 0,
+            "clarification_active": True,
         })
 
-        from bot.handlers.callbacks import _handle_answer_prompt
+        from bot.handlers.clarification import _show_clarification_question
 
-        await _handle_answer_prompt(99999, gap_id, bot)
+        await _show_clarification_question(99999, bot, progress_msg_id)
 
-        # Should edit, not send new
-        bot.edit_message_text.assert_called()
-        assert bot.edit_message_text.call_args[1]["message_id"] == 7000
+        # send_message should NOT be called when progress_id is provided
+        bot.send_message.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_pause_edits_message(
@@ -458,25 +495,66 @@ class TestFR35_SingleMessageEdit:
         text = bot.edit_message_text.call_args[1]["text"]
         assert "приостановлена" in text.lower()
 
-    @pytest.mark.asyncio
-    async def test_no_new_messages_during_gap_flow(
-        self, db_session, patch_db, seed_process, seed_gaps
-    ):
-        """FR-35.5: During gap question flow, bot.send_message is NOT called."""
-        bot = make_bot_mock()
-        progress_msg_id = 9000
-
-        from bot.handlers.clarification import send_next_gap_question
-
-        await send_next_gap_question(99999, seed_process.id, bot, progress_msg_id)
-
-        # send_message should NOT be called when progress_id is provided
-        bot.send_message.assert_not_called()
-
 
 # ============================================================================
 # FR-36 (updated): User messages deleted, bot edits one message
 # ============================================================================
+
+
+class TestFR36_CleanChat:
+    """FR-36: User messages are deleted; bot only edits its single message."""
+
+    @pytest.mark.asyncio
+    async def test_user_text_deleted_bot_edits(
+        self, db_session, patch_db, seed_process, seed_session
+    ):
+        """FR-36.1: User text message is deleted, bot edits existing message."""
+        seed_session.state = SessionStatus.AWAITING_INITIAL_RESPONSE
+        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
+        await db_session.commit()
+
+        update, context = make_update(
+            text="Описание процесса",
+            message_id=42,
+        )
+
+        from bot.handlers.callbacks import save_chat_context
+        await save_chat_context(99999, {
+            "session_id": seed_session.id,
+            "process_id": seed_process.id,
+            "bot_message_id": 3000,
+        })
+
+        with (
+            patch(
+                "bot.services.extractor.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
+            ),
+            patch(
+                "bot.services.gap_detector.chat",
+                new_callable=AsyncMock,
+                return_value=json.dumps(SAMPLE_GAP_RESULT, ensure_ascii=False),
+            ),
+            patch(
+                "bot.handlers.clarification.start_clarification_flow",
+                new_callable=AsyncMock,
+            ),
+        ):
+            from bot.handlers.interview import handle_text_message
+
+            await handle_text_message(update, context)
+
+        # User message must be deleted
+        context.bot.delete_message.assert_any_call(chat_id=99999, message_id=42)
+
+        # Bot should edit existing message (bot_message_id=3000), not send new
+        found_edit = False
+        for call in context.bot.edit_message_text.call_args_list:
+            if call[1].get("message_id") == 3000:
+                found_edit = True
+                break
+        assert found_edit, "Bot should edit existing message_id=3000"
 
 
 # ============================================================================
@@ -489,10 +567,13 @@ class TestFR44_PromptsInFiles:
 
     @pytest.mark.asyncio
     async def test_all_prompt_files_exist(self):
-        """FR-44.1: All 5 prompt files exist and are non-trivial."""
+        """FR-44.1: All prompt files exist and are non-trivial."""
         from bot.prompts import load_prompt
 
-        for name in ["extractor", "gap_detector", "generator", "mermaid", "opportunities"]:
+        for name in [
+            "extractor", "gap_detector", "generator", "mermaid",
+            "opportunities", "clarification_questions", "answer_extractor",
+        ]:
             prompt = load_prompt(name)
             assert len(prompt) > 50, f"Prompt '{name}' should be non-trivial"
 
@@ -504,14 +585,17 @@ class TestFR44_PromptsInFiles:
         from bot.services.generator import SYSTEM_PROMPT as gen_prompt
         from bot.services.mermaid import SYSTEM_PROMPT as merm_prompt
         from bot.services.opportunities import SYSTEM_PROMPT as opp_prompt
+        from bot.services.clarification import QUESTIONS_PROMPT as clar_prompt
+        from bot.services.clarification import ANSWER_PROMPT as ans_prompt
         from bot.prompts import load_prompt
 
-        # Each service prompt must match the file content
         assert ext_prompt == load_prompt("extractor")
         assert gap_prompt == load_prompt("gap_detector")
         assert gen_prompt == load_prompt("generator")
         assert merm_prompt == load_prompt("mermaid")
         assert opp_prompt == load_prompt("opportunities")
+        assert clar_prompt == load_prompt("clarification_questions")
+        assert ans_prompt == load_prompt("answer_extractor")
 
 
 # ============================================================================
@@ -544,6 +628,15 @@ class TestFR45_MessagesModule:
             "GAP_ANSWER_SAVED", "GAP_ANSWER_SAVED_DETAIL",
             "ANALYSIS_FAILED", "GEN_NO_DATA", "GEN_NO_OPPS",
             "NO_CONTEXT", "AUDIO_ONLY",
+            # New clarification flow messages
+            "CLARIFICATION_GENERATING", "CLARIFICATION_GENERATING_DETAIL",
+            "CLARIFICATION_QUESTION_PREFIX",
+            "CLARIFICATION_SUGGESTIONS",
+            "CLARIFICATION_ANSWER_HINT",
+            "CLARIFICATION_EXTRACTING", "CLARIFICATION_EXTRACTING_DETAIL",
+            "CLARIFICATION_SKIPPED",
+            "CLARIFICATION_DONE", "CLARIFICATION_DONE_DETAIL",
+            "CLARIFICATION_NO_QUESTIONS",
         ]
         for key in required:
             assert hasattr(bmsg, key), f"bot.messages missing: {key}"
@@ -556,7 +649,6 @@ class TestFR45_MessagesModule:
 
         assert "{name}" in bmsg.ASIS_READY_TEXT
         assert "{url}" in bmsg.ASIS_READY_TEXT
-        # Should not crash when formatted
         result = bmsg.ASIS_READY_TEXT.format(name="Test", url="https://example.com")
         assert "Test" in result
         assert "https://example.com" in result
@@ -568,7 +660,7 @@ class TestFR45_MessagesModule:
 
 
 class TestFR46_ProgressBarPercentage:
-    """FR-46: Progress bar uses 6 total steps (input→extract→completeness→narrative→diagram→publish)."""
+    """FR-46: Progress bar uses 6 total steps."""
 
     @pytest.mark.asyncio
     async def test_total_steps_is_6(self):
@@ -639,7 +731,6 @@ class TestFR47_UrlHandling:
             from bot.handlers.clarification import trigger_asis_generation
             await trigger_asis_generation(99999, seed_process.id, bot)
 
-        # Check that no inline button has url= with localhost
         all_calls = (
             list(bot.send_message.call_args_list)
             + list(bot.edit_message_text.call_args_list)
@@ -694,67 +785,13 @@ class TestFR47_UrlHandling:
         assert found_url, "URL must appear in message text"
 
 
-class TestFR36_CleanChat:
-    """FR-36: User messages are deleted; bot only edits its single message."""
-
-    @pytest.mark.asyncio
-    async def test_user_text_deleted_bot_edits(
-        self, db_session, patch_db, seed_process, seed_session
-    ):
-        """FR-36.1: User text message is deleted, bot edits existing message."""
-        seed_session.state = SessionStatus.AWAITING_INITIAL_RESPONSE
-        seed_process.status = ProcessStatus.INTERVIEW_IN_PROGRESS
-        await db_session.commit()
-
-        update, context = make_update(
-            text="Описание процесса",
-            message_id=42,
-        )
-
-        from bot.handlers.callbacks import save_chat_context
-        await save_chat_context(99999, {
-            "session_id": seed_session.id,
-            "process_id": seed_process.id,
-            "bot_message_id": 3000,
-        })
-
-        with (
-            patch(
-                "bot.services.extractor.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(SAMPLE_ASIS_MODEL, ensure_ascii=False),
-            ),
-            patch(
-                "bot.services.gap_detector.chat",
-                new_callable=AsyncMock,
-                return_value=json.dumps(SAMPLE_GAP_RESULT, ensure_ascii=False),
-            ),
-        ):
-            from bot.handlers.interview import handle_text_message
-
-            await handle_text_message(update, context)
-
-        # User message must be deleted
-        context.bot.delete_message.assert_any_call(chat_id=99999, message_id=42)
-
-        # Bot should edit existing message (bot_message_id=3000), not send new
-        # At least one edit should target message_id=3000
-        found_edit = False
-        for call in context.bot.edit_message_text.call_args_list:
-            if call[1].get("message_id") == 3000:
-                found_edit = True
-                break
-        assert found_edit, "Bot should edit existing message_id=3000"
-
-
 # ============================================================================
 # FR-48: Greeting message overwritten by first progress step
 # ============================================================================
 
 
 class TestFR48_GreetingOverwrite:
-    """FR-48: 'Process created' greeting is saved as bot_message_id and
-    overwritten by the first progress step."""
+    """FR-48: Greeting is saved as bot_message_id and overwritten by progress."""
 
     @pytest.mark.asyncio
     async def test_new_process_greeting_saved_as_bot_message_id(
@@ -766,7 +803,6 @@ class TestFR48_GreetingOverwrite:
         from bot.handlers.start import handle_new_process_name
         from bot.handlers.callbacks import save_chat_context, get_chat_context
 
-        # Set up context as if user clicked "+"
         await save_chat_context(99999, {
             "awaiting_process_name": True,
             "messages_to_delete": [],
@@ -780,8 +816,7 @@ class TestFR48_GreetingOverwrite:
 
         ctx = await get_chat_context(99999)
         assert ctx is not None
-        assert "bot_message_id" in ctx, "Greeting message_id must be saved in context"
-        # The bot_message_id should be the message_id returned by send_message
+        assert "bot_message_id" in ctx
         assert ctx["bot_message_id"] > 0
 
     @pytest.mark.asyncio
@@ -795,8 +830,7 @@ class TestFR48_GreetingOverwrite:
 
         update, context = make_update(text="Описание процесса", message_id=50)
 
-        # Simulate greeting message already in context
-        from bot.handlers.callbacks import save_chat_context, get_chat_context
+        from bot.handlers.callbacks import save_chat_context
         greeting_msg_id = 2000
         await save_chat_context(99999, {
             "session_id": seed_session.id,
@@ -815,11 +849,14 @@ class TestFR48_GreetingOverwrite:
                 new_callable=AsyncMock,
                 return_value=json.dumps(SAMPLE_GAP_RESULT, ensure_ascii=False),
             ),
+            patch(
+                "bot.handlers.clarification.start_clarification_flow",
+                new_callable=AsyncMock,
+            ),
         ):
             from bot.handlers.interview import handle_text_message
             await handle_text_message(update, context)
 
-        # The greeting message (id=2000) must be edited
         found = False
         for call in context.bot.edit_message_text.call_args_list:
             if call[1].get("message_id") == greeting_msg_id:

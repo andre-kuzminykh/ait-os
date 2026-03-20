@@ -90,6 +90,12 @@ async def callback_handler(
         session_id = int(data.split("_", 1)[1])
         await _handle_resume(chat_id, session_id, update, bot)
 
+    elif data == "skip_clarification":
+        from bot.handlers.clarification import handle_clarification_skip
+        await handle_clarification_skip(chat_id, bot, message_id)
+
+    # ---- Legacy gap flow (kept for backward compatibility) ----
+
     elif data.startswith("answer_"):
         gap_id = int(data.split("_", 1)[1])
         await _handle_answer_prompt(chat_id, gap_id, bot)

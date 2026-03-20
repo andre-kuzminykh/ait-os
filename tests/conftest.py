@@ -413,6 +413,67 @@ SAMPLE_MERMAID = """flowchart TD
     B --> C[Настройка рабочего места]
     C --> D[Готово]"""
 
+SAMPLE_CLARIFICATION_QUESTIONS = {
+    "questions": [
+        {
+            "field_type": "operations",
+            "include": False,
+            "question": "Этапы выглядят полными.",
+            "suggestions": [],
+        },
+        {
+            "field_type": "metrics",
+            "include": True,
+            "question": "На этапе «Оформление документов» не указаны метрики. Какие KPI/SLA отслеживаются?",
+            "suggestions": ["время оформления", "% ошибок в документах", "количество возвратов"],
+        },
+        {
+            "field_type": "roles",
+            "include": False,
+            "question": "Все роли указаны.",
+            "suggestions": [],
+        },
+        {
+            "field_type": "systems",
+            "include": True,
+            "question": "На этапе «Настройка рабочего места» — какие ещё системы используются кроме Jira?",
+            "suggestions": ["Active Directory", "GLPI", "Confluence"],
+        },
+        {
+            "field_type": "artifacts",
+            "include": False,
+            "question": "Артефакты указаны.",
+            "suggestions": [],
+        },
+    ]
+}
+
+SAMPLE_CLARIFICATION_QUESTIONS_INCLUDED = [
+    {
+        "field_type": "metrics",
+        "question": "На этапе «Оформление документов» не указаны метрики. Какие KPI/SLA отслеживаются?",
+        "suggestions": ["время оформления", "% ошибок в документах", "количество возвратов"],
+    },
+    {
+        "field_type": "systems",
+        "question": "На этапе «Настройка рабочего места» — какие ещё системы используются кроме Jira?",
+        "suggestions": ["Active Directory", "GLPI", "Confluence"],
+    },
+]
+
+SAMPLE_EXTRACTED_ANSWER_METRICS = {
+    "metrics": [
+        {"stage_id": "stage_1", "metric_name": "время оформления", "metric_value": "1 рабочий день"},
+        {"stage_id": "stage_1", "metric_name": "% ошибок", "metric_value": "менее 5%"},
+    ]
+}
+
+SAMPLE_EXTRACTED_ANSWER_SYSTEMS = {
+    "systems": [
+        {"stage_id": "stage_2", "system": "Active Directory"},
+    ]
+}
+
 SAMPLE_OPPORTUNITIES = [
     {
         "title": "Автопарсинг документов",

@@ -1,4 +1,10 @@
-"""Follow-up question flow and AS-IS generation trigger with progress UX."""
+"""Clarification Q&A flow and AS-IS generation trigger with progress UX.
+
+New flow: after initial extraction, LLM generates up to 5 structured questions
+(operations, metrics, roles, systems, artifacts). Each question is shown with
+only a "Skip" button. User answers directly via text/voice. LLM extracts
+answers and updates the AS-IS model.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +24,12 @@ from bot.models import (
     Process,
     PublishedPage,
     InterviewSession,
+    RawInput,
+)
+from bot.services.clarification import (
+    extract_answer,
+    generate_clarification_questions,
+    merge_extracted_answer,
 )
 from bot.services.generator import generate_narrative
 from bot.services.mermaid import generate_mermaid
@@ -37,6 +49,275 @@ logger = logging.getLogger(__name__)
 # Same total as interview.py — progress bar is continuous
 TOTAL_STEPS = 6
 
+
+async def start_clarification_flow(
+    chat_id: int, process_id: int, bot,
+    progress_id: int | None = None,
+) -> None:
+    """Generate clarification questions and start the sequential Q&A.
+
+    Called after initial extraction when completeness is below threshold.
+    Generates up to 5 questions via LLM, stores them in chat context,
+    and shows the first one.
+    """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
+    # Show progress: generating questions
+    progress_id = await send_step(
+        bot, chat_id, 3, TOTAL_STEPS,
+        msg.CLARIFICATION_GENERATING, msg.CLARIFICATION_GENERATING_DETAIL,
+        progress_id,
+    )
+
+    # Load AS-IS model
+    async with async_session() as db:
+        process = await db.get(Process, process_id)
+        result = await db.execute(
+            select(AsIsModel).where(AsIsModel.process_id == process_id)
+        )
+        asis = result.scalar_one_or_none()
+
+        if not asis or not process:
+            await send_progress(bot, chat_id, msg.GEN_NO_DATA, progress_id)
+            return
+
+        model_data = _model_to_dict(asis)
+
+    # LLM: generate clarification questions
+    questions = await generate_clarification_questions(process.name, model_data)
+
+    if not questions:
+        # No questions needed — proceed to generation
+        await send_progress(
+            bot, chat_id, msg.CLARIFICATION_NO_QUESTIONS, progress_id,
+        )
+        await trigger_asis_generation(chat_id, process_id, bot, progress_id)
+        return
+
+    # Store questions in chat context
+    ctx = await get_chat_context(chat_id) or {}
+    ctx["clarification_questions"] = questions
+    ctx["clarification_index"] = 0
+    ctx["clarification_active"] = True
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
+
+    # Show first question
+    await _show_clarification_question(chat_id, bot, progress_id)
+
+
+async def _show_clarification_question(
+    chat_id: int, bot, progress_id: int | None = None,
+) -> None:
+    """Show the current clarification question with Skip button."""
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
+    ctx = await get_chat_context(chat_id) or {}
+    questions = ctx.get("clarification_questions", [])
+    index = ctx.get("clarification_index", 0)
+
+    if index >= len(questions):
+        # All questions done
+        await _finish_clarification(chat_id, bot, progress_id)
+        return
+
+    q = questions[index]
+    total = len(questions)
+    num = index + 1
+
+    # Build question text
+    text = msg.CLARIFICATION_QUESTION_PREFIX.format(num=num, total=total)
+    text += f"\n\n{q['question']}"
+
+    # Add suggestions
+    if q.get("suggestions"):
+        suggestions_text = "\n".join(f"• {s}" for s in q["suggestions"])
+        text += msg.CLARIFICATION_SUGGESTIONS.format(suggestions=suggestions_text)
+
+    text += msg.CLARIFICATION_ANSWER_HINT
+
+    # Only one button: Skip
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(msg.BTN_SKIP, callback_data="skip_clarification")]
+    ])
+
+    sent_id = None
+    if progress_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=progress_id,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
+            sent_id = progress_id
+        except Exception:
+            pass
+
+    if sent_id is None:
+        result = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        sent_id = result.message_id
+
+    ctx["bot_message_id"] = sent_id
+    await save_chat_context(chat_id, ctx)
+
+
+async def handle_clarification_answer(
+    update: Update, answer_text: str,
+) -> None:
+    """Process user's text/voice answer to the current clarification question.
+
+    Extracts structured data via LLM and merges into AS-IS model.
+    """
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
+    chat_id = update.effective_chat.id
+    bot = update.get_bot()
+
+    # Delete user's message
+    if update.message:
+        await delete_messages(bot, chat_id, [update.message.message_id])
+
+    ctx = await get_chat_context(chat_id) or {}
+    questions = ctx.get("clarification_questions", [])
+    index = ctx.get("clarification_index", 0)
+    process_id = ctx.get("process_id")
+    progress_id = ctx.get("bot_message_id")
+
+    if index >= len(questions) or not process_id:
+        return
+
+    q = questions[index]
+
+    # Show extracting progress
+    progress_id = await send_step(
+        bot, chat_id, 3, TOTAL_STEPS,
+        msg.CLARIFICATION_EXTRACTING, msg.CLARIFICATION_EXTRACTING_DETAIL,
+        progress_id,
+    )
+
+    # Save raw input
+    async with async_session() as db:
+        result = await db.execute(
+            select(InterviewSession).where(
+                InterviewSession.process_id == process_id,
+                InterviewSession.state != SessionStatus.COMPLETED,
+            ).limit(1)
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            raw = RawInput(
+                session_id=session.id,
+                message_type="text",
+                raw_text=answer_text,
+                telegram_message_id=(
+                    update.message.message_id if update.message else None
+                ),
+            )
+            db.add(raw)
+            await db.commit()
+
+    # Load current AS-IS model
+    async with async_session() as db:
+        result = await db.execute(
+            select(AsIsModel).where(AsIsModel.process_id == process_id)
+        )
+        asis = result.scalar_one_or_none()
+        if not asis:
+            return
+
+        process = await db.get(Process, process_id)
+        model_data = _model_to_dict(asis)
+
+    # LLM: extract answer
+    extracted = await extract_answer(
+        q["field_type"], q["question"], answer_text, model_data,
+    )
+
+    # Merge into model
+    updated_model = merge_extracted_answer(model_data, q["field_type"], extracted)
+
+    # Save updated model
+    async with async_session() as db:
+        result = await db.execute(
+            select(AsIsModel).where(AsIsModel.process_id == process_id)
+        )
+        asis = result.scalar_one_or_none()
+        if asis:
+            asis.goal = updated_model.get("goal")
+            asis.summary = updated_model.get("summary")
+            asis.stages = json.dumps(updated_model.get("stages", []), ensure_ascii=False)
+            asis.roles = json.dumps(updated_model.get("roles", []), ensure_ascii=False)
+            asis.systems = json.dumps(updated_model.get("systems", []), ensure_ascii=False)
+            asis.artifacts = json.dumps(updated_model.get("artifacts", []), ensure_ascii=False)
+            asis.metrics = json.dumps(updated_model.get("metrics", []), ensure_ascii=False)
+            asis.triggers = json.dumps(updated_model.get("triggers", []), ensure_ascii=False)
+            asis.inputs = json.dumps(updated_model.get("inputs", []), ensure_ascii=False)
+            asis.outputs = json.dumps(updated_model.get("outputs", []), ensure_ascii=False)
+            asis.pain_points = json.dumps(updated_model.get("pain_points", []), ensure_ascii=False)
+            asis.handoffs = json.dumps(updated_model.get("handoffs", []), ensure_ascii=False)
+            asis.version += 1
+            await db.commit()
+
+    # Advance to next question
+    ctx["clarification_index"] = index + 1
+    ctx["bot_message_id"] = progress_id
+    await save_chat_context(chat_id, ctx)
+
+    await _show_clarification_question(chat_id, bot, progress_id)
+
+
+async def handle_clarification_skip(
+    chat_id: int, bot, message_id: int | None = None,
+) -> None:
+    """Skip current clarification question and show the next one."""
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
+    ctx = await get_chat_context(chat_id) or {}
+    index = ctx.get("clarification_index", 0)
+
+    ctx["clarification_index"] = index + 1
+    await save_chat_context(chat_id, ctx)
+
+    await _show_clarification_question(chat_id, bot, message_id)
+
+
+async def _finish_clarification(
+    chat_id: int, bot, progress_id: int | None = None,
+) -> None:
+    """All clarification questions answered/skipped. Trigger AS-IS generation."""
+    from bot.handlers.callbacks import get_chat_context, save_chat_context
+
+    ctx = await get_chat_context(chat_id) or {}
+    process_id = ctx.get("process_id")
+
+    # Clear clarification state
+    ctx.pop("clarification_questions", None)
+    ctx.pop("clarification_index", None)
+    ctx["clarification_active"] = False
+    await save_chat_context(chat_id, ctx)
+
+    if not process_id:
+        return
+
+    progress_id = await send_step(
+        bot, chat_id, 3, TOTAL_STEPS,
+        msg.CLARIFICATION_DONE, msg.CLARIFICATION_DONE_DETAIL,
+        progress_id,
+    )
+
+    await trigger_asis_generation(chat_id, process_id, bot, progress_id)
+
+
+# ---------------------------------------------------------------------------
+# Legacy gap-based flow (kept for backward compatibility)
+# ---------------------------------------------------------------------------
 
 async def send_next_gap_question(
     chat_id: int, process_id: int, update_or_bot,
@@ -132,8 +413,6 @@ async def handle_gap_answer(
 
         gap.status = GapStatus.ANSWERED
         process_id = gap.process_id
-
-        from bot.models import RawInput
 
         result = await db.execute(
             select(InterviewSession)
@@ -412,6 +691,7 @@ async def _show_final_result(
 
     ctx = await get_chat_context(chat_id) or {}
     ctx["bot_message_id"] = sent_id
+    ctx["clarification_active"] = False
     await save_chat_context(chat_id, ctx)
 
 

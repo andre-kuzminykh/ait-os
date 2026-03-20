@@ -338,12 +338,12 @@ async def _process_input(
                 chat_id, process_id, bot, progress_id
             )
         else:
-            # Need clarification
+            # Need clarification — start 5-question Q&A flow
             process.status = ProcessStatus.CLARIFICATION_IN_PROGRESS
             session.state = SessionStatus.AWAITING_FOLLOWUP_ANSWER
             await db.commit()
 
-            # Edit progress message to show completeness, then to gap question
+            # Edit progress message to show completeness
             progress_id = await send_step(
                 bot, chat_id, 3, TOTAL_STEPS,
                 msg.COMPLETENESS_PARTIAL.format(pct=display_score),
@@ -351,13 +351,13 @@ async def _process_input(
                 progress_id,
             )
 
-            # Store bot_message_id so gap question edits the same message
+            # Store bot_message_id so clarification edits the same message
             ctx = await get_chat_context(chat_id) or {}
             ctx["bot_message_id"] = progress_id
             await save_chat_context(chat_id, ctx)
 
-            from bot.handlers.clarification import send_next_gap_question
-            await send_next_gap_question(
+            from bot.handlers.clarification import start_clarification_flow
+            await start_clarification_flow(
                 chat_id, process_id, bot, progress_id,
             )
 
