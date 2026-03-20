@@ -252,9 +252,9 @@ class TestFR29_InlineDisplay:
         await send_next_opportunity(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        # Should contain one of the type labels
-        type_labels = ["AI", "Правила", "Интеграция", "Аналитика", "Мониторинг"]
-        assert any(label in text for label in type_labels)
+        # Should contain one of the type emojis
+        type_emojis = ["🤖", "⚙️", "🔗", "📊", "📡"]
+        assert any(e in text for e in type_emojis)
 
     @pytest.mark.asyncio
     async def test_detail_shows_full_description(

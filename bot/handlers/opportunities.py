@@ -18,13 +18,13 @@ from bot.states import OpportunityStatus, ProcessStatus
 
 logger = logging.getLogger(__name__)
 
-# Type label mapping
-_TYPE_LABELS = {
-    "ai": "🤖 AI",
-    "rule_based": "⚙️ Правила",
-    "integration": "🔗 Интеграция",
-    "analytics": "📊 Аналитика",
-    "monitoring": "📡 Мониторинг",
+# Type emoji mapping (short — just the emoji)
+_TYPE_EMOJI = {
+    "ai": "🤖",
+    "rule_based": "⚙️",
+    "integration": "🔗",
+    "analytics": "📊",
+    "monitoring": "📡",
 }
 
 
@@ -64,33 +64,22 @@ async def show_opportunities_multiselect(
         await bot.send_message(chat_id=chat_id, text=text)
         return
 
-    # Build description text
-    header = ""
-    if asis_url:
-        header = f"✅ AS-IS готов: {asis_url}\n\n"
-    text = header + "🔍 *Потенциал автоматизации*\n\n"
-    text += "Мы нашли следующие возможности автоматизации процесса"
-    if process:
-        text += f" *{process.name}*"
-    text += ":\n\n"
+    # Build description text — compact: title + emoji, then benefit
+    text = "🔍 *Потенциал автоматизации*\n\n"
 
     for i, opp in enumerate(opps, 1):
-        type_label = ""
-        if opp.opp_type:
-            type_label = _TYPE_LABELS.get(opp.opp_type.value, "")
-        text += f"{i}. *{opp.title}*"
-        if type_label:
-            text += f" ({type_label})"
-        text += "\n"
-        if opp.problem:
-            text += f"   _{opp.problem}_\n"
+        emoji = _TYPE_EMOJI.get(opp.opp_type.value, "") if opp.opp_type else ""
+        text += f"{i}. {opp.title} {emoji}\n"
         if opp.expected_benefit:
-            text += f"   Эффект: {opp.expected_benefit}\n"
-        text += "\n"
+            text += f"   _{opp.expected_benefit}_\n"
 
-    text += "Выберите интересующие вас пункты (можно несколько):"
+    text += "\nВыберите интересующие вас пункты:"
 
-    # Build toggle buttons
+    # AS-IS link at the bottom
+    if asis_url:
+        text += f"\n\n[📄 Открыть AS-IS]({asis_url})"
+
+    # Build toggle buttons — title + emoji on the right
     buttons = []
     selected_count = 0
     for opp in opps:
@@ -98,13 +87,8 @@ async def show_opportunities_multiselect(
         if is_selected:
             selected_count += 1
         prefix = "✅ " if is_selected else "⬜ "
-        type_short = ""
-        if opp.opp_type:
-            type_short = _TYPE_LABELS.get(opp.opp_type.value, "")
-            if type_short:
-                type_short = f" {type_short}"
-        label = f"{prefix}{opp.title}{type_short}"
-        # Truncate long labels for Telegram (max ~64 chars)
+        emoji = _TYPE_EMOJI.get(opp.opp_type.value, "") if opp.opp_type else ""
+        label = f"{prefix}{opp.title} {emoji}"
         if len(label) > 60:
             label = label[:57] + "..."
         buttons.append(

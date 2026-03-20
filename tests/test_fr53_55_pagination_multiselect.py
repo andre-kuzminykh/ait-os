@@ -359,30 +359,30 @@ class TestFR54_MultiselectDisplay:
         assert len(proceed_buttons) == 0
 
     @pytest.mark.asyncio
-    async def test_shows_problem_and_benefit(
+    async def test_shows_benefit(
         self, db_session, patch_db, seed_process, seed_opportunities,
     ):
-        """Text includes problem and expected benefit."""
+        """Text includes expected benefit (without 'Эффект:' prefix)."""
         bot = BotMock()
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        # Check at least one problem and benefit is shown
-        assert "HR вручную вносит данные из паспорта" in text
         assert "Сокращение ошибок на 80%" in text
+        # No "Эффект:" prefix
+        assert "Эффект:" not in text
 
     @pytest.mark.asyncio
-    async def test_shows_type_labels(
+    async def test_shows_type_emoji(
         self, db_session, patch_db, seed_process, seed_opportunities,
     ):
-        """Type labels (AI, Integration, etc.) shown in text."""
+        """Type emojis shown in text next to title."""
         bot = BotMock()
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        assert "🤖 AI" in text
-        assert "🔗 Интеграция" in text
-        assert "📊 Аналитика" in text
+        assert "🤖" in text
+        assert "🔗" in text
+        assert "📊" in text
 
     @pytest.mark.asyncio
     async def test_no_opps_message(self, db_session, patch_db, seed_process):
@@ -681,7 +681,7 @@ class TestFR56_AsisUrlInMultiselect:
     """asis_url parameter is included in opportunities text."""
 
     @pytest.mark.asyncio
-    async def test_asis_url_in_text(
+    async def test_asis_url_as_hyperlink_at_bottom(
         self, db_session, patch_db, seed_process, seed_opportunities,
     ):
         bot = BotMock()
@@ -690,8 +690,10 @@ class TestFR56_AsisUrlInMultiselect:
         )
 
         text = bot.send_message.call_args[1]["text"]
-        assert "http://localhost:9090/pages/abc.html" in text
-        assert "AS-IS" in text
+        # Hyperlink format: [📄 Открыть AS-IS](url)
+        assert "[📄 Открыть AS-IS](http://localhost:9090/pages/abc.html)" in text
+        # Link should be at the end of the text
+        assert text.rstrip().endswith(")")
 
     @pytest.mark.asyncio
     async def test_no_url_when_not_provided(
@@ -701,7 +703,7 @@ class TestFR56_AsisUrlInMultiselect:
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        assert "AS-IS готов:" not in text
+        assert "Открыть AS-IS" not in text
 
 
 # ═══════════════════════════════════════════════════════════════════════
