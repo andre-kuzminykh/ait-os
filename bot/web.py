@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from urllib.parse import urlparse
 
 from aiohttp import web
@@ -49,8 +48,12 @@ def create_app() -> web.Application:
     return app
 
 
-async def start_web_server() -> web.AppRunner:
-    """Start the HTTP server in the background. Returns the runner."""
+async def start_web_server() -> web.AppRunner | None:
+    """Start the HTTP server in the background. Returns the runner.
+
+    If the port is already in use, logs a warning and returns None
+    (the bot continues without its own page server).
+    """
     PAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     app = create_app()
@@ -58,8 +61,16 @@ async def start_web_server() -> web.AppRunner:
     await runner.setup()
 
     port = _parse_port()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-    logger.info("Pages HTTP server started on port %d", port)
-    return runner
+    try:
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info("Pages HTTP server started on port %d", port)
+        return runner
+    except OSError as exc:
+        await runner.cleanup()
+        logger.warning(
+            "Could not start pages server on port %d (%s). "
+            "If another process already serves pages, this is fine.",
+            port, exc,
+        )
+        return None
