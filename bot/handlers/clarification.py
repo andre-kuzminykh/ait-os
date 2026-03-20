@@ -669,6 +669,13 @@ async def trigger_asis_generation(
 
         await db.commit()
 
+    # Re-publish HTML with opportunities matching the TG format
+    if opps and page_token:
+        from bot.handlers.opportunities import build_opportunities_html
+
+        narrative["automation_candidates_html"] = build_opportunities_html(opps)
+        await publish_page(page_token, narrative, mermaid_code)
+
     # Edit progress message into final result with AS-IS link
     await _show_final_result(
         bot, chat_id, process_id, process.name, url, opps, progress_id,

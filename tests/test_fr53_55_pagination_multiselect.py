@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from bot.handlers.callbacks import callback_handler, save_chat_context
 from bot.handlers.opportunities import (
+    build_opportunities_html,
     handle_opportunity_proceed,
     handle_opportunity_toggle,
     show_opportunities_multiselect,
@@ -704,6 +705,38 @@ class TestFR56_AsisUrlInMultiselect:
 
         text = bot.send_message.call_args[1]["text"]
         assert "Открыть AS-IS" not in text
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# FR-56b: HTML opportunities match TG format
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFR56b_HtmlOpportunitiesFormat:
+    """build_opportunities_html produces HTML matching TG message format."""
+
+    def test_basic_html(self):
+        opps = [
+            {"title": "Авто-ответы", "type": "ai", "expected_benefit": "Сокращение на 80%"},
+            {"title": "Интеграция Jira", "type": "integration", "expected_benefit": ""},
+        ]
+        html = build_opportunities_html(opps)
+        assert "<ol>" in html
+        assert "Авто-ответы 🤖" in html
+        assert "<em>Сокращение на 80%</em>" in html
+        assert "Интеграция Jira 🔗" in html
+        # No benefit line for second item (empty)
+        assert html.count("<em>") == 1
+
+    def test_empty_list(self):
+        assert build_opportunities_html([]) == ""
+
+    def test_unknown_type(self):
+        opps = [{"title": "Что-то", "type": "unknown", "expected_benefit": "Эффект"}]
+        html = build_opportunities_html(opps)
+        # Unknown type — no emoji, but still renders
+        assert "Что-то" in html
+        assert "<em>Эффект</em>" in html
 
 
 # ═══════════════════════════════════════════════════════════════════════

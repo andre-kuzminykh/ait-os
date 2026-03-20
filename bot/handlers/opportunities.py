@@ -28,6 +28,28 @@ _TYPE_EMOJI = {
 }
 
 
+def build_opportunities_html(opps_data: list[dict]) -> str:
+    """Build HTML fragment for opportunities matching the TG message format.
+
+    Each item: title + type emoji, then benefit on next line.
+    Used in the published AS-IS HTML page.
+    """
+    if not opps_data:
+        return ""
+    lines = ["<ol>"]
+    for opp in opps_data:
+        opp_type = opp.get("type", "")
+        emoji = _TYPE_EMOJI.get(opp_type, "")
+        title = opp.get("title", "")
+        benefit = opp.get("expected_benefit", "")
+        lines.append(f"  <li>{title} {emoji}")
+        if benefit:
+            lines.append(f"    <br><em>{benefit}</em>")
+        lines.append("  </li>")
+    lines.append("</ol>")
+    return "\n".join(lines)
+
+
 async def show_opportunities_multiselect(
     chat_id: int, process_id: int, bot,
     message_id: int | None = None,
