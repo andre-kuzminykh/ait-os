@@ -19,6 +19,7 @@ from bot.models import (
     Company,
     InterviewSession,
     Process,
+    PublishedPage,
     Respondent,
 )
 from bot.states import OpportunityStatus, OpportunityType, ProcessStatus, SessionStatus
@@ -679,7 +680,7 @@ class TestFR54_SelectAll:
 
 
 class TestFR56_AsisUrlInMultiselect:
-    """asis_url parameter is included in opportunities text."""
+    """asis_url shown as hyperlink at bottom, persists on toggle."""
 
     @pytest.mark.asyncio
     async def test_asis_url_as_hyperlink_at_bottom(
@@ -691,20 +692,38 @@ class TestFR56_AsisUrlInMultiselect:
         )
 
         text = bot.send_message.call_args[1]["text"]
-        # Hyperlink format: [📄 Открыть AS-IS](url)
         assert "[📄 Открыть AS-IS](http://localhost:9090/pages/abc.html)" in text
-        # Link should be at the end of the text
         assert text.rstrip().endswith(")")
 
     @pytest.mark.asyncio
-    async def test_no_url_when_not_provided(
+    async def test_no_url_when_no_published_page(
         self, db_session, patch_db, seed_process, seed_opportunities,
     ):
+        """No link when no asis_url and no published page in DB."""
         bot = BotMock()
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
         assert "Открыть AS-IS" not in text
+
+    @pytest.mark.asyncio
+    async def test_asis_url_fetched_from_db(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """When asis_url not passed, fetch from PublishedPage in DB."""
+        page = PublishedPage(
+            process_id=seed_process.id,
+            html_url="http://localhost:9090/pages/xyz.html",
+        )
+        db_session.add(page)
+        await db_session.commit()
+
+        bot = BotMock()
+        # No asis_url passed — should auto-fetch from DB
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        assert "[📄 Открыть AS-IS](http://localhost:9090/pages/xyz.html)" in text
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -713,7 +732,7 @@ class TestFR56_AsisUrlInMultiselect:
 
 
 class TestFR56b_HtmlOpportunitiesFormat:
-    """build_opportunities_html produces HTML matching TG message format."""
+    """build_opportunities_html produces compact HTML (titles only)."""
 
     def test_basic_html(self):
         opps = [
@@ -721,12 +740,12 @@ class TestFR56b_HtmlOpportunitiesFormat:
             {"title": "Интеграция Jira", "type": "integration", "expected_benefit": ""},
         ]
         html = build_opportunities_html(opps)
-        assert "<ol>" in html
+        assert "<ul>" in html
         assert "Авто-ответы 🤖" in html
-        assert "<em>Сокращение на 80%</em>" in html
         assert "Интеграция Jira 🔗" in html
-        # No benefit line for second item (empty)
-        assert html.count("<em>") == 1
+        # HTML should NOT contain benefits — only titles
+        assert "Сокращение на 80%" not in html
+        assert "<em>" not in html
 
     def test_empty_list(self):
         assert build_opportunities_html([]) == ""
@@ -734,9 +753,9 @@ class TestFR56b_HtmlOpportunitiesFormat:
     def test_unknown_type(self):
         opps = [{"title": "Что-то", "type": "unknown", "expected_benefit": "Эффект"}]
         html = build_opportunities_html(opps)
-        # Unknown type — no emoji, but still renders
         assert "Что-то" in html
-        assert "<em>Эффект</em>" in html
+        # Benefits not in HTML
+        assert "Эффект" not in html
 
 
 # ═══════════════════════════════════════════════════════════════════════
