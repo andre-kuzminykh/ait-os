@@ -71,6 +71,19 @@ async def callback_handler(
             from bot.handlers.start import show_process_list
             await show_process_list(chat_id, bot, tg_user_id, message_id)
 
+    elif data.startswith("page_") and data != "page_noop":
+        page_num = int(data.split("_", 1)[1])
+        ctx = await get_chat_context(chat_id) or {}
+        tg_user_id = ctx.get("telegram_user_id")
+        if not tg_user_id:
+            tg_user_id = update.effective_user.id if update.effective_user else None
+        if tg_user_id:
+            from bot.handlers.start import show_process_list
+            await show_process_list(chat_id, bot, tg_user_id, message_id, page=page_num)
+
+    elif data == "page_noop":
+        pass  # No-op for page indicator button
+
     elif data.startswith("view_"):
         process_id = int(data.split("_", 1)[1])
         ctx = await get_chat_context(chat_id) or {}
@@ -114,6 +127,16 @@ async def callback_handler(
         process_id = int(data.split("_", 2)[2])
         from bot.handlers.opportunities import send_next_opportunity
         await send_next_opportunity(chat_id, process_id, bot)
+
+    elif data.startswith("opp_toggle_"):
+        opp_id = int(data.split("_", 2)[2])
+        from bot.handlers.opportunities import handle_opportunity_toggle
+        await handle_opportunity_toggle(chat_id, opp_id, bot, message_id)
+
+    elif data.startswith("opp_proceed_"):
+        process_id = int(data.split("_", 2)[2])
+        from bot.handlers.opportunities import handle_opportunity_proceed
+        await handle_opportunity_proceed(chat_id, process_id, bot, message_id)
 
     elif data.startswith("opp_select_"):
         opp_id = int(data.split("_", 2)[2])

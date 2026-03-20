@@ -98,10 +98,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await show_process_list(chat_id, context.bot, tg_user.id)
 
 
+PAGE_SIZE = 10  # Max processes shown per page
+
+
 async def show_process_list(
-    chat_id: int, bot, telegram_user_id: int, message_id: int | None = None,
+    chat_id: int, bot, telegram_user_id: int,
+    message_id: int | None = None, page: int = 0,
 ) -> int:
-    """Show process list with '+' button. Edit existing message or send new."""
+    """Show process list with '+' button and pagination.
+
+    Shows up to PAGE_SIZE processes per page with ← → navigation arrows.
+    """
     async with async_session() as db:
         result = await db.execute(
             select(InterviewSession)
@@ -122,13 +129,40 @@ async def show_process_list(
         if s.process_id not in seen:
             seen[s.process_id] = s
 
+    all_items = list(seen.values())
+    total = len(all_items)
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+
+    # Slice for current page
+    start = page * PAGE_SIZE
+    page_items = all_items[start : start + PAGE_SIZE]
+
     buttons = []
-    for s in seen.values():
+    for s in page_items:
         icon = _STATUS_ICONS.get(s.process.status, "⚪")
         label = f"{icon} {s.process.name}"
         buttons.append(
             [InlineKeyboardButton(label, callback_data=f"view_{s.process.id}")]
         )
+
+    # Pagination arrows (only if more than one page)
+    if total_pages > 1:
+        nav_row = []
+        if page > 0:
+            nav_row.append(
+                InlineKeyboardButton("⬅️", callback_data=f"page_{page - 1}")
+            )
+        nav_row.append(
+            InlineKeyboardButton(
+                f"{page + 1}/{total_pages}", callback_data="page_noop"
+            )
+        )
+        if page < total_pages - 1:
+            nav_row.append(
+                InlineKeyboardButton("➡️", callback_data=f"page_{page + 1}")
+            )
+        buttons.append(nav_row)
 
     buttons.append(
         [InlineKeyboardButton("➕ Новый процесс", callback_data="new_process")]

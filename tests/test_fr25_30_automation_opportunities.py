@@ -186,13 +186,13 @@ class TestFR28_BusinessReadable:
 
 
 class TestFR29_InlineDisplay:
-    """FR-29: Bot must display opportunities with inline selection buttons."""
+    """FR-29: Bot must display opportunities with inline toggle buttons (multiselect)."""
 
     @pytest.mark.asyncio
     async def test_opportunity_card_sent_to_user(
         self, db_session, patch_db, seed_process, seed_opportunities
     ):
-        """FR-29.1: Opportunity is sent as a card message."""
+        """FR-29.1: Opportunities are sent as a multiselect message."""
         bot = make_bot_mock()
 
         from bot.handlers.opportunities import send_next_opportunity
@@ -204,10 +204,10 @@ class TestFR29_InlineDisplay:
         assert len(text) > 10
 
     @pytest.mark.asyncio
-    async def test_card_has_select_button(
+    async def test_card_has_toggle_buttons(
         self, db_session, patch_db, seed_process, seed_opportunities
     ):
-        """FR-29.2: Card has 'Выбрать' button."""
+        """FR-29.2: Multiselect view has toggle buttons for each opportunity."""
         bot = make_bot_mock()
 
         from bot.handlers.opportunities import send_next_opportunity
@@ -215,14 +215,17 @@ class TestFR29_InlineDisplay:
         await send_next_opportunity(99999, seed_process.id, bot)
 
         markup = bot.send_message.call_args[1]["reply_markup"]
-        buttons = [btn.text for row in markup.inline_keyboard for btn in row]
-        assert any("Выбрать" in b for b in buttons)
+        toggle_buttons = [
+            btn for row in markup.inline_keyboard for btn in row
+            if btn.callback_data and btn.callback_data.startswith("opp_toggle_")
+        ]
+        assert len(toggle_buttons) == len(seed_opportunities)
 
     @pytest.mark.asyncio
-    async def test_card_has_reject_button(
+    async def test_toggle_buttons_show_unchecked(
         self, db_session, patch_db, seed_process, seed_opportunities
     ):
-        """FR-29.3: Card has 'Не выбирать' button."""
+        """FR-29.3: Initially all toggle buttons show ⬜ (unchecked)."""
         bot = make_bot_mock()
 
         from bot.handlers.opportunities import send_next_opportunity
@@ -230,23 +233,12 @@ class TestFR29_InlineDisplay:
         await send_next_opportunity(99999, seed_process.id, bot)
 
         markup = bot.send_message.call_args[1]["reply_markup"]
-        buttons = [btn.text for row in markup.inline_keyboard for btn in row]
-        assert any("Не выбирать" in b for b in buttons)
-
-    @pytest.mark.asyncio
-    async def test_card_has_detail_button(
-        self, db_session, patch_db, seed_process, seed_opportunities
-    ):
-        """FR-29.4: Card has 'Подробнее' button."""
-        bot = make_bot_mock()
-
-        from bot.handlers.opportunities import send_next_opportunity
-
-        await send_next_opportunity(99999, seed_process.id, bot)
-
-        markup = bot.send_message.call_args[1]["reply_markup"]
-        buttons = [btn.text for row in markup.inline_keyboard for btn in row]
-        assert any("Подробнее" in b for b in buttons)
+        toggle_buttons = [
+            btn for row in markup.inline_keyboard for btn in row
+            if btn.callback_data and btn.callback_data.startswith("opp_toggle_")
+        ]
+        for btn in toggle_buttons:
+            assert btn.text.startswith("⬜")
 
     @pytest.mark.asyncio
     async def test_card_shows_type_label(

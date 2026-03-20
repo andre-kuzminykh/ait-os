@@ -24,31 +24,26 @@ from tests.conftest import make_bot_mock, make_callback_query
 
 
 class TestFR31_TOBECTA:
-    """FR-31: Show CTA 'Составить TO-BE' after selection step."""
+    """FR-31: Show CTA 'Составить TO-BE' after proceeding with selection."""
 
     @pytest.mark.asyncio
-    async def test_cta_shown_after_all_reviewed(
+    async def test_cta_shown_after_proceed(
         self, db_session, patch_db, seed_process, seed_opportunities
     ):
-        """FR-31.1: CTA shown when all opportunities have been reviewed."""
+        """FR-31.1: CTA shown when user proceeds after selecting opportunities."""
         bot = make_bot_mock()
 
-        # Select first, reject rest
-        from bot.handlers.opportunities import (
-            handle_opportunity_select,
-            handle_opportunity_reject,
-        )
+        from bot.handlers.opportunities import handle_opportunity_proceed
 
-        await handle_opportunity_select(99999, seed_opportunities[0].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[1].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[2].id, bot)
+        # Select one, then proceed
+        seed_opportunities[0].status = OpportunityStatus.SELECTED
+        await db_session.commit()
 
-        # The last action should trigger summary + CTA
-        all_texts = [
-            call[1].get("text", "") for call in bot.send_message.call_args_list
-        ]
-        cta_found = any("TO-BE" in t for t in all_texts)
-        assert cta_found, f"No TO-BE CTA in messages: {all_texts}"
+        await handle_opportunity_proceed(99999, seed_process.id, bot, message_id=500)
+
+        # Check edit_message_text for TO-BE CTA
+        edit_kwargs = bot.edit_message_text.call_args[1]
+        assert "TO-BE" in edit_kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_cta_button_present(
@@ -57,44 +52,34 @@ class TestFR31_TOBECTA:
         """FR-31.2: CTA is shown as an inline button 'Составить TO-BE'."""
         bot = make_bot_mock()
 
-        from bot.handlers.opportunities import (
-            handle_opportunity_select,
-            handle_opportunity_reject,
-        )
+        from bot.handlers.opportunities import handle_opportunity_proceed
 
-        await handle_opportunity_select(99999, seed_opportunities[0].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[1].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[2].id, bot)
+        seed_opportunities[0].status = OpportunityStatus.SELECTED
+        await db_session.commit()
 
-        # Find message with CTA button
-        for call in bot.send_message.call_args_list:
-            kwargs = call[1]
-            markup = kwargs.get("reply_markup")
-            if markup and hasattr(markup, "inline_keyboard"):
-                buttons = [
-                    btn.text for row in markup.inline_keyboard for btn in row
-                ]
-                if any("TO-BE" in b for b in buttons):
-                    return
-        pytest.fail("No 'Составить TO-BE' button found")
+        await handle_opportunity_proceed(99999, seed_process.id, bot, message_id=500)
+
+        markup = bot.edit_message_text.call_args[1]["reply_markup"]
+        buttons = [btn.text for row in markup.inline_keyboard for btn in row]
+        assert any("TO-BE" in b for b in buttons)
 
     @pytest.mark.asyncio
-    async def test_cta_shown_without_selections(
+    async def test_dalee_only_with_selection(
         self, db_session, patch_db, seed_process, seed_opportunities
     ):
-        """FR-31.3: CTA shown even if no opportunities were selected (all rejected)."""
+        """FR-31.3: 'Далее' button only appears when ≥1 opportunity is selected."""
         bot = make_bot_mock()
 
-        from bot.handlers.opportunities import handle_opportunity_reject
+        from bot.handlers.opportunities import show_opportunities_multiselect
 
-        for opp in seed_opportunities:
-            await handle_opportunity_reject(99999, opp.id, bot)
-
-        all_texts = [
-            call[1].get("text", "") for call in bot.send_message.call_args_list
+        # No selections — no Далее
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+        markup = bot.send_message.call_args[1]["reply_markup"]
+        proceed_buttons = [
+            btn for row in markup.inline_keyboard for btn in row
+            if btn.callback_data and btn.callback_data.startswith("opp_proceed_")
         ]
-        cta_found = any("TO-BE" in t for t in all_texts)
-        assert cta_found
+        assert len(proceed_buttons) == 0
 
     @pytest.mark.asyncio
     async def test_summary_shows_selected_count(
@@ -103,20 +88,16 @@ class TestFR31_TOBECTA:
         """FR-31.4: Summary message shows how many were selected."""
         bot = make_bot_mock()
 
-        from bot.handlers.opportunities import (
-            handle_opportunity_select,
-            handle_opportunity_reject,
-        )
+        from bot.handlers.opportunities import handle_opportunity_proceed
 
-        await handle_opportunity_select(99999, seed_opportunities[0].id, bot)
-        await handle_opportunity_select(99999, seed_opportunities[1].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[2].id, bot)
+        seed_opportunities[0].status = OpportunityStatus.SELECTED
+        seed_opportunities[1].status = OpportunityStatus.SELECTED
+        await db_session.commit()
 
-        all_texts = [
-            call[1].get("text", "") for call in bot.send_message.call_args_list
-        ]
-        summary_texts = [t for t in all_texts if "TO-BE" in t]
-        assert any("2" in t for t in summary_texts), "Should show '2' selected"
+        await handle_opportunity_proceed(99999, seed_process.id, bot, message_id=500)
+
+        text = bot.edit_message_text.call_args[1]["text"]
+        assert "2" in text
 
 
 # ============================================================================
@@ -204,17 +185,15 @@ class TestFR33_FinalState:
     async def test_process_status_set_to_ready_for_tobe(
         self, db_session, patch_db, seed_process, seed_opportunities
     ):
-        """FR-33.1: Process status is set to READY_FOR_TOBE after selection."""
+        """FR-33.1: Process status is set to READY_FOR_TOBE after proceed."""
         bot = make_bot_mock()
 
-        from bot.handlers.opportunities import (
-            handle_opportunity_select,
-            handle_opportunity_reject,
-        )
+        from bot.handlers.opportunities import handle_opportunity_proceed
 
-        await handle_opportunity_select(99999, seed_opportunities[0].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[1].id, bot)
-        await handle_opportunity_reject(99999, seed_opportunities[2].id, bot)
+        seed_opportunities[0].status = OpportunityStatus.SELECTED
+        await db_session.commit()
+
+        await handle_opportunity_proceed(99999, seed_process.id, bot, message_id=500)
 
         async with patch_db() as fresh:
             result = await fresh.execute(
