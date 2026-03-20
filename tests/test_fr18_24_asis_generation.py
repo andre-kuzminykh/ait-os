@@ -28,6 +28,7 @@ from tests.conftest import (
     SAMPLE_ASIS_MODEL,
     SAMPLE_MERMAID,
     SAMPLE_NARRATIVE,
+    SAMPLE_OPPORTUNITIES,
 )
 
 
@@ -318,8 +319,9 @@ class TestFR24_SendUrl:
             ),
             patch("bot.services.publisher.PAGES_DIR", tmp_path),
             patch(
-                "bot.handlers.clarification._generate_and_show_opportunities",
+                "bot.services.opportunities.chat",
                 new_callable=AsyncMock,
+                return_value=json.dumps({"opportunities": SAMPLE_OPPORTUNITIES}, ensure_ascii=False),
             ),
         ):
             from bot.handlers.clarification import trigger_asis_generation
@@ -330,6 +332,9 @@ class TestFR24_SendUrl:
         all_texts = [
             call[1].get("text", "") for call in bot.send_message.call_args_list
         ]
+        # Also check edit_message_text calls (progress messages)
+        for call in bot.edit_message_text.call_args_list:
+            all_texts.append(call[1].get("text", ""))
         url_sent = any("http" in t for t in all_texts)
         assert url_sent, f"No URL found in messages: {all_texts}"
 
@@ -353,8 +358,9 @@ class TestFR24_SendUrl:
             ),
             patch("bot.services.publisher.PAGES_DIR", tmp_path),
             patch(
-                "bot.handlers.clarification._generate_and_show_opportunities",
+                "bot.services.opportunities.chat",
                 new_callable=AsyncMock,
+                return_value=json.dumps({"opportunities": SAMPLE_OPPORTUNITIES}, ensure_ascii=False),
             ),
         ):
             from bot.handlers.clarification import trigger_asis_generation

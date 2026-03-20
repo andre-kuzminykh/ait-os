@@ -347,11 +347,7 @@ class TestFR17_CompletenessThreshold:
         db_session.add(raw)
         await db_session.commit()
 
-        update = MagicMock()
-        update.message = MagicMock()
-        update.message.reply_text = AsyncMock()
-        update.effective_chat = MagicMock()
-        update.effective_chat.id = 99999
+        bot = make_bot_mock()
 
         high_completeness = {"completeness_score": 0.9, "gaps": []}
 
@@ -373,7 +369,7 @@ class TestFR17_CompletenessThreshold:
         ):
             from bot.handlers.interview import _process_input
 
-            await _process_input(update, seed_process.id, seed_session.id)
+            await _process_input(bot, 99999, seed_process.id, seed_session.id)
 
         mock_gen.assert_called_once()
 
@@ -392,11 +388,7 @@ class TestFR17_CompletenessThreshold:
         db_session.add(raw)
         await db_session.commit()
 
-        update = MagicMock()
-        update.message = MagicMock()
-        update.message.reply_text = AsyncMock()
-        update.effective_chat = MagicMock()
-        update.effective_chat.id = 99999
+        bot = make_bot_mock()
 
         with (
             patch(
@@ -416,6 +408,6 @@ class TestFR17_CompletenessThreshold:
         ):
             from bot.handlers.interview import _process_input
 
-            await _process_input(update, seed_process.id, seed_session.id)
+            await _process_input(bot, 99999, seed_process.id, seed_session.id)
 
         mock_q.assert_called_once()

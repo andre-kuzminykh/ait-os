@@ -263,8 +263,18 @@ class BotMock:
     """A mock bot that doesn't auto-create attributes like MagicMock does."""
 
     def __init__(self):
-        self.send_message = AsyncMock()
+        self._msg_counter = 0
+        self.send_message = AsyncMock(side_effect=self._fake_send)
+        self.edit_message_text = AsyncMock()
+        self.delete_message = AsyncMock()
         self.get_file = AsyncMock()
+        self.set_my_commands = AsyncMock()
+
+    async def _fake_send(self, **kwargs):
+        self._msg_counter += 1
+        msg = MagicMock()
+        msg.message_id = 10000 + self._msg_counter
+        return msg
 
 
 def make_bot_mock():

@@ -268,9 +268,14 @@ class TestFR3_VoiceInput:
 
             await handle_voice_message(update, context)
 
-        # Should tell user transcription failed
-        calls = [c[0][0] for c in update.message.reply_text.call_args_list]
-        assert any("не удалось" in c.lower() or "текстом" in c.lower() for c in calls)
+        # Should tell user transcription failed (via bot.send_message or edit_message_text)
+        bot = context.bot
+        all_texts = []
+        for call in bot.send_message.call_args_list:
+            all_texts.append(call[1].get("text", ""))
+        for call in bot.edit_message_text.call_args_list:
+            all_texts.append(call[1].get("text", ""))
+        assert any("не удалось" in t.lower() or "текстом" in t.lower() for t in all_texts)
 
 
 # ============================================================================
@@ -314,8 +319,8 @@ class TestFR4_AudioFileInput:
 
             await handle_document(update, context)
 
-        # Should have processed the audio
-        update.message.reply_text.assert_called()
+        # Should have processed the audio (via bot.send_message for progress)
+        context.bot.send_message.assert_called()
 
     @pytest.mark.asyncio
     async def test_non_audio_file_rejected(
