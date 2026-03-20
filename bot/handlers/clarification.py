@@ -741,7 +741,7 @@ async def _show_final_result(
             chat_id=chat_id,
             text=text,
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         ctx["bot_message_id"] = result.message_id
         await save_chat_context(chat_id, ctx)

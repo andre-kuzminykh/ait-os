@@ -387,6 +387,42 @@ class TestFR54_MultiselectDisplay:
         assert "📊" in text
 
     @pytest.mark.asyncio
+    async def test_uses_html_parse_mode(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Opportunities message uses parse_mode='HTML'."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        call_kwargs = bot.send_message.call_args[1]
+        assert call_kwargs["parse_mode"] == "HTML"
+
+    @pytest.mark.asyncio
+    async def test_titles_are_bold_html(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Opportunity titles wrapped in <b> tags."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        for opp in seed_opportunities:
+            assert f"<b>{opp.title}</b>" in text
+
+    @pytest.mark.asyncio
+    async def test_benefits_are_italic_html(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Expected benefits wrapped in <i> tags."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        for opp in seed_opportunities:
+            if opp.expected_benefit:
+                assert f"<i>{opp.expected_benefit}</i>" in text
+
+    @pytest.mark.asyncio
     async def test_no_opps_message(self, db_session, patch_db, seed_process):
         """When no opportunities found, shows appropriate message."""
         bot = BotMock()
@@ -749,8 +785,7 @@ class TestFR56_AsisUrlInMultiselect:
         )
 
         text = bot.send_message.call_args[1]["text"]
-        assert "[📄 Открыть AS-IS](http://localhost:9090/pages/abc.html)" in text
-        assert text.rstrip().endswith(")")
+        assert '<a href="http://localhost:9090/pages/abc.html">📄 Открыть AS-IS</a>' in text
 
     @pytest.mark.asyncio
     async def test_no_url_when_no_published_page(
@@ -780,7 +815,7 @@ class TestFR56_AsisUrlInMultiselect:
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        assert "[📄 Открыть AS-IS](http://localhost:9090/pages/xyz.html)" in text
+        assert '<a href="http://localhost:9090/pages/xyz.html">📄 Открыть AS-IS</a>' in text
 
 
 # ═══════════════════════════════════════════════════════════════════════

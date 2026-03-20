@@ -98,20 +98,20 @@ async def show_opportunities_multiselect(
     # Limit to 10 most important opportunities
     display_opps = opps[:10]
 
-    text = "🔍 *Потенциал автоматизации*\n\n"
+    text = "🔍 <b>Потенциал автоматизации</b>\n\n"
 
     for i, opp in enumerate(display_opps, 1):
         emoji = _TYPE_EMOJI.get(opp.opp_type.value, "") if opp.opp_type else ""
-        text += f"{i}. {opp.title} {emoji}\n"
+        text += f"{i}. <b>{opp.title}</b> {emoji}\n"
         if opp.expected_benefit:
-            text += f"    _{opp.expected_benefit}_\n"
+            text += f"    <i>{opp.expected_benefit}</i>\n"
         text += "\n"
 
     text += "Выберите интересующие вас пункты:"
 
-    # AS-IS link at the bottom — Markdown hyperlink
+    # AS-IS link at the bottom — HTML hyperlink
     if asis_url:
-        text += f"\n\n[📄 Открыть AS-IS]({asis_url})"
+        text += f'\n\n<a href="{asis_url}">📄 Открыть AS-IS</a>'
 
     # Build toggle buttons — title + emoji on the right (max 10)
     buttons = []
@@ -150,7 +150,7 @@ async def show_opportunities_multiselect(
                 message_id=message_id,
                 text=text,
                 reply_markup=keyboard,
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
             sent_id = message_id
         except Exception:
@@ -161,7 +161,7 @@ async def show_opportunities_multiselect(
             chat_id=chat_id,
             text=text,
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         sent_id = result.message_id
 
@@ -225,11 +225,11 @@ async def handle_opportunity_proceed(
     # Show stub
     summary = f"✅ Выбрано {len(selected)} точек автоматизации:\n\n"
     for i, opp in enumerate(selected, 1):
-        summary += f"{i}. *{opp.title}*\n"
+        summary += f"{i}. <b>{opp.title}</b>\n"
 
     summary += (
         "\n🚀 Процесс готов к составлению TO-BE.\n\n"
-        "_Генерация TO-BE будет доступна в следующем обновлении._"
+        "<i>Генерация TO-BE будет доступна в следующем обновлении.</i>"
     )
 
     keyboard = InlineKeyboardMarkup([[
@@ -246,7 +246,7 @@ async def handle_opportunity_proceed(
                 message_id=message_id,
                 text=summary,
                 reply_markup=keyboard,
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
             return
         except Exception:
@@ -256,7 +256,7 @@ async def handle_opportunity_proceed(
         chat_id=chat_id,
         text=summary,
         reply_markup=keyboard,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 

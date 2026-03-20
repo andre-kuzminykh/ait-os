@@ -592,11 +592,19 @@ class TestFR45_MessagesModule:
 
     @pytest.mark.asyncio
     async def test_asis_ready_text_has_hyperlink(self):
-        """FR-45.3: ASIS_READY_TEXT formats URL as Markdown hyperlink."""
+        """FR-45.3: ASIS_READY_TEXT formats URL as HTML hyperlink."""
         import bot.messages as bmsg
 
         result = bmsg.ASIS_READY_TEXT.format(name="Test", url="https://example.com")
-        assert "[📄 Открыть AS-IS](https://example.com)" in result
+        assert '<a href="https://example.com">📄 Открыть AS-IS</a>' in result
+
+    @pytest.mark.asyncio
+    async def test_asis_ready_text_has_bold_name(self):
+        """FR-45.4: ASIS_READY_TEXT uses <b> for process name."""
+        import bot.messages as bmsg
+
+        result = bmsg.ASIS_READY_TEXT.format(name="Test", url="https://example.com")
+        assert "<b>Test</b>" in result
 
 
 # ============================================================================
