@@ -246,7 +246,8 @@ async def show_process_detail(
     if completeness:
         text += f"\nПолнота: {completeness}%"
     if page_url:
-        text += f'\nAS-IS: <a href="{page_url}">Открыть</a>'
+        from bot.handlers.opportunities import _format_asis_link
+        text += _format_asis_link(page_url)
 
     buttons = []
 

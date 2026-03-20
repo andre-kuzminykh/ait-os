@@ -785,7 +785,8 @@ class TestFR56_AsisUrlInMultiselect:
         )
 
         text = bot.send_message.call_args[1]["text"]
-        assert '<a href="http://localhost:9090/pages/abc.html">📄 Открыть AS-IS</a>' in text
+        # localhost URLs shown as plain text (Telegram doesn't render <a href> for localhost)
+        assert "http://localhost:9090/pages/abc.html" in text
 
     @pytest.mark.asyncio
     async def test_no_url_when_no_published_page(
@@ -815,7 +816,30 @@ class TestFR56_AsisUrlInMultiselect:
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        assert '<a href="http://localhost:9090/pages/xyz.html">📄 Открыть AS-IS</a>' in text
+        assert "http://localhost:9090/pages/xyz.html" in text
+
+    @pytest.mark.asyncio
+    async def test_format_asis_link_localhost_plain(self):
+        """Localhost URLs are plain text (Telegram ignores <a href> for them)."""
+        from bot.handlers.opportunities import _format_asis_link
+        result = _format_asis_link("http://localhost:8080/pages/abc.html")
+        assert "<a href" not in result
+        assert "http://localhost:8080/pages/abc.html" in result
+
+    @pytest.mark.asyncio
+    async def test_format_asis_link_public_hyperlink(self):
+        """Public URLs use HTML <a href> hyperlink."""
+        from bot.handlers.opportunities import _format_asis_link
+        result = _format_asis_link("https://example.com/pages/abc.html")
+        assert '<a href="https://example.com/pages/abc.html">' in result
+
+    @pytest.mark.asyncio
+    async def test_format_asis_link_127_plain(self):
+        """127.0.0.1 URLs are plain text like localhost."""
+        from bot.handlers.opportunities import _format_asis_link
+        result = _format_asis_link("http://127.0.0.1:8080/pages/abc.html")
+        assert "<a href" not in result
+        assert "http://127.0.0.1:8080/pages/abc.html" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════

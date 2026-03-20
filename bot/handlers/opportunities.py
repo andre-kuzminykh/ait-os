@@ -18,6 +18,17 @@ from bot.states import OpportunityStatus, ProcessStatus
 
 logger = logging.getLogger(__name__)
 
+
+def _format_asis_link(url: str) -> str:
+    """Format AS-IS link for Telegram HTML message.
+
+    Telegram does not render <a href> for localhost URLs,
+    so fall back to plain URL text for local development.
+    """
+    if "://localhost" in url or "://127.0.0.1" in url:
+        return f"\n\n📄 AS-IS: {url}"
+    return f'\n\n<a href="{url}">📄 Открыть AS-IS</a>'
+
 # Type emoji mapping (short — just the emoji)
 _TYPE_EMOJI = {
     "ai": "🤖",
@@ -109,9 +120,9 @@ async def show_opportunities_multiselect(
 
     text += "Выберите интересующие вас пункты:"
 
-    # AS-IS link at the bottom — HTML hyperlink
+    # AS-IS link at the bottom
     if asis_url:
-        text += f'\n\n<a href="{asis_url}">📄 Открыть AS-IS</a>'
+        text += _format_asis_link(asis_url)
 
     # Build toggle buttons — title + emoji on the right (max 10)
     buttons = []
