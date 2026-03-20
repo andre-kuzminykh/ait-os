@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.database import async_session
-from bot.models import AutomationOpportunity, Process
+from bot.models import AutomationOpportunity, Process, PublishedPage
 from bot.states import OpportunityStatus, ProcessStatus
 
 logger = logging.getLogger(__name__)
@@ -29,24 +29,20 @@ _TYPE_EMOJI = {
 
 
 def build_opportunities_html(opps_data: list[dict]) -> str:
-    """Build HTML fragment for opportunities matching the TG message format.
+    """Build compact HTML fragment for opportunities.
 
-    Each item: title + type emoji, then benefit on next line.
-    Used in the published AS-IS HTML page.
+    HTML shows only title + type emoji (short list).
+    Full benefits are shown in the TG message only.
     """
     if not opps_data:
         return ""
-    lines = ["<ol>"]
+    lines = ["<ul>"]
     for opp in opps_data:
         opp_type = opp.get("type", "")
         emoji = _TYPE_EMOJI.get(opp_type, "")
         title = opp.get("title", "")
-        benefit = opp.get("expected_benefit", "")
-        lines.append(f"  <li>{title} {emoji}")
-        if benefit:
-            lines.append(f"    <br><em>{benefit}</em>")
-        lines.append("  </li>")
-    lines.append("</ol>")
+        lines.append(f"  <li>{title} {emoji}</li>")
+    lines.append("</ul>")
     return "\n".join(lines)
 
 
@@ -72,6 +68,18 @@ async def show_opportunities_multiselect(
         opps = result.scalars().all()
 
         process = await db.get(Process, process_id)
+
+        # Fetch asis_url from DB if not provided
+        if not asis_url:
+            page_result = await db.execute(
+                select(PublishedPage)
+                .where(PublishedPage.process_id == process_id)
+                .order_by(PublishedPage.id.desc())
+                .limit(1)
+            )
+            page = page_result.scalar_one_or_none()
+            if page and page.html_url:
+                asis_url = page.html_url
 
     if not opps:
         text = "Не удалось выявить точки автоматизации."
