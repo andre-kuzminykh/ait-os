@@ -198,28 +198,40 @@ class TestFR41_StructuredGapQuestions:
     @pytest.mark.asyncio
     async def test_gap_prompt_mentions_stage_fields(self):
         """FR-41.1: The gap detector prompt instructs LLM to check per-stage fields."""
-        from bot.services.gap_detector import SYSTEM_PROMPT
+        from bot.prompts import load_prompt
+        prompt = load_prompt("gap_detector")
 
         # Prompt must mention checking each stage for these fields
-        assert "owner_role" in SYSTEM_PROMPT or "Роль" in SYSTEM_PROMPT
-        assert "systems" in SYSTEM_PROMPT or "Система" in SYSTEM_PROMPT
-        assert "metrics" in SYSTEM_PROMPT or "Метрик" in SYSTEM_PROMPT
-        assert "inputs" in SYSTEM_PROMPT or "Артефакт" in SYSTEM_PROMPT
-        assert "outputs" in SYSTEM_PROMPT or "выход" in SYSTEM_PROMPT
+        assert "owner_role" in prompt or "Роль" in prompt
+        assert "systems" in prompt or "Система" in prompt
+        assert "metrics" in prompt or "Метрик" in prompt
+        assert "inputs" in prompt or "Артефакт" in prompt
+        assert "outputs" in prompt or "выход" in prompt
 
     @pytest.mark.asyncio
     async def test_gap_prompt_requires_empty_fields_only(self):
         """FR-41.2: Prompt instructs to ask ONLY about empty fields."""
-        from bot.services.gap_detector import SYSTEM_PROMPT
+        from bot.prompts import load_prompt
+        prompt = load_prompt("gap_detector")
 
-        assert "пуст" in SYSTEM_PROMPT.lower() or "отсутств" in SYSTEM_PROMPT.lower()
+        assert "пуст" in prompt.lower() or "отсутств" in prompt.lower()
 
     @pytest.mark.asyncio
     async def test_gap_prompt_has_max_5_questions(self):
         """FR-41.3: Max 5 questions per call."""
-        from bot.services.gap_detector import SYSTEM_PROMPT
+        from bot.prompts import load_prompt
+        prompt = load_prompt("gap_detector")
 
-        assert "5" in SYSTEM_PROMPT
+        assert "5" in prompt
+
+    @pytest.mark.asyncio
+    async def test_prompts_loaded_from_files(self):
+        """FR-41.4: All prompts are loaded from separate .txt files."""
+        from bot.prompts import load_prompt
+
+        for name in ["extractor", "gap_detector", "generator", "mermaid", "opportunities"]:
+            prompt = load_prompt(name)
+            assert len(prompt) > 50, f"Prompt '{name}' should be non-trivial"
 
 
 # ============================================================================
@@ -233,10 +245,11 @@ class TestFR42_QuestionPriority:
     @pytest.mark.asyncio
     async def test_priority_order_in_prompt(self):
         """FR-42.1: Gap detector prompt specifies priority order in priority section."""
-        from bot.services.gap_detector import SYSTEM_PROMPT
+        from bot.prompts import load_prompt
+        prompt = load_prompt("gap_detector")
 
         # Find the priority section (numbered list 1-5)
-        priority_section = SYSTEM_PROMPT[SYSTEM_PROMPT.find("Группируй"):]
+        priority_section = prompt[prompt.find("Группируй"):]
         priority_lower = priority_section.lower()
 
         # Check that priority items appear in the correct order
@@ -463,6 +476,58 @@ class TestFR35_SingleMessageEdit:
 # ============================================================================
 # FR-36 (updated): User messages deleted, bot edits one message
 # ============================================================================
+
+
+# ============================================================================
+# Messages and prompts are editable
+# ============================================================================
+
+
+class TestEditableMessagesAndPrompts:
+    """All status messages and prompts are in separate files for easy editing."""
+
+    @pytest.mark.asyncio
+    async def test_messages_module_has_all_keys(self):
+        """All key status messages exist in bot.messages."""
+        import bot.messages as bmsg
+
+        required = [
+            "INPUT_SAVED", "VOICE_RECEIVED", "VOICE_FAILED",
+            "EXTRACTING_STRUCTURE", "EVALUATING_COMPLETENESS",
+            "COMPLETENESS_READY", "COMPLETENESS_PARTIAL",
+            "GEN_NARRATIVE", "GEN_DIAGRAM", "GEN_PUBLISH",
+            "GEN_OPPORTUNITIES", "ASIS_READY_TEXT",
+            "BTN_OPEN_ASIS", "BTN_ANSWER", "BTN_SKIP", "BTN_PAUSE",
+            "SESSION_PAUSED", "ANSWER_PROMPT",
+        ]
+        for key in required:
+            assert hasattr(bmsg, key), f"bot.messages missing: {key}"
+            assert getattr(bmsg, key), f"bot.messages.{key} is empty"
+
+    @pytest.mark.asyncio
+    async def test_progress_bar_uses_total_6_steps(self):
+        """Progress bar shows percentage towards full HTML generation (6 steps)."""
+        from bot.handlers.interview import TOTAL_STEPS
+        from bot.handlers.clarification import TOTAL_STEPS as TOTAL_STEPS_2
+
+        assert TOTAL_STEPS == 6
+        assert TOTAL_STEPS_2 == 6
+
+    @pytest.mark.asyncio
+    async def test_progress_bar_percentage_at_step_3(self):
+        """At step 3 of 6, progress bar shows 50%."""
+        from bot.handlers.progress import loading_bar
+
+        bar = loading_bar(3, 6)
+        assert "50%" in bar
+
+    @pytest.mark.asyncio
+    async def test_progress_bar_percentage_at_step_6(self):
+        """At step 6 of 6, progress bar shows 100%."""
+        from bot.handlers.progress import loading_bar
+
+        bar = loading_bar(6, 6)
+        assert "100%" in bar
 
 
 class TestFR36_CleanChat:

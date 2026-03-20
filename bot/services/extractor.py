@@ -5,49 +5,12 @@ from __future__ import annotations
 import json
 import logging
 
+from bot.prompts import load_prompt
 from bot.services.llm import chat
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-Ты — аналитик бизнес-процессов. Тебе передают текстовые записи интервью \
-с сотрудниками компании. Твоя задача — извлечь структурированное описание \
-текущего (AS-IS) процесса.
-
-Верни ТОЛЬКО валидный JSON (без markdown-обёртки) со следующей структурой:
-{
-  "goal": "цель процесса",
-  "summary": "краткое описание процесса",
-  "triggers": ["список триггеров"],
-  "inputs": ["входные данные/документы"],
-  "outputs": ["выходные данные/результаты"],
-  "stages": [
-    {
-      "id": "stage_1",
-      "name": "Название этапа",
-      "description": "Описание этапа",
-      "owner_role": "роль ответственного",
-      "systems": ["системы"],
-      "inputs": ["входы"],
-      "outputs": ["выходы"],
-      "artifacts": ["артефакты"],
-      "metrics": ["метрики"],
-      "sla": "SLA если известно",
-      "pain_points": ["проблемы"],
-      "handoff_to": "следующий этап или роль"
-    }
-  ],
-  "roles": ["все роли"],
-  "systems": ["все системы"],
-  "artifacts": ["все артефакты"],
-  "metrics": ["все метрики"],
-  "pain_points": ["общие проблемы"],
-  "handoffs": ["передачи между этапами"]
-}
-
-Если информация не была упомянута, ставь пустой список [] или null. \
-Не выдумывай данные. Используй только то, что сказано в интервью.\
-"""
+SYSTEM_PROMPT = load_prompt("extractor")
 
 
 async def extract_asis_model(

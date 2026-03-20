@@ -4,26 +4,12 @@ import json
 import logging
 import re
 
+from bot.prompts import load_prompt
 from bot.services.llm import chat
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-Ты — специалист по визуализации бизнес-процессов. \
-Тебе дана структурированная модель процесса AS-IS. \
-Создай Mermaid-диаграмму (flowchart TD) для этого процесса.
-
-Правила:
-- Используй flowchart TD (сверху вниз).
-- Каждый этап — отдельный узел.
-- Покажи переходы между этапами.
-- Добавь роли как подписи, если они есть.
-- Добавь условия/развилки, если есть decision points.
-- Узлы и подписи на русском.
-- Не используй специальные символы, которые ломают Mermaid-синтаксис.
-
-Верни ТОЛЬКО код Mermaid, без обёрток ``` и без пояснений.\
-"""
+SYSTEM_PROMPT = load_prompt("mermaid")
 
 
 def validate_mermaid(code: str) -> bool:

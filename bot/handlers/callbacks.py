@@ -281,7 +281,8 @@ async def _handle_answer_prompt(chat_id: int, gap_id: int, bot) -> None:
     progress_id = ctx.get("bot_message_id")
     await save_chat_context(chat_id, ctx)
 
-    text = "Напишите ответ текстом или отправьте голосовое сообщение."
+    import bot.messages as bmsg
+    text = bmsg.ANSWER_PROMPT
 
     if progress_id:
         try:

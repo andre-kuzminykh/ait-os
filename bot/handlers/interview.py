@@ -17,8 +17,15 @@ from bot.services.extractor import extract_asis_model
 from bot.services.gap_detector import detect_gaps
 from bot.services.transcription import transcribe_telegram_voice
 from bot.states import GapStatus, ProcessStatus, SessionStatus
+import bot.messages as msg
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Total steps in the whole pipeline: interview(2) + generation(4) = 6
+# The progress bar always shows step/TOTAL_STEPS.
+# ---------------------------------------------------------------------------
+TOTAL_STEPS = 6
 
 
 async def handle_text_message(
@@ -30,10 +37,7 @@ async def handle_text_message(
     chat_id = update.effective_chat.id
     ctx = await get_chat_context(chat_id)
     if not ctx:
-        await update.message.reply_text(
-            "Начните с /start или /new\\_process, чтобы создать процесс.",
-            parse_mode="Markdown",
-        )
+        await update.message.reply_text(msg.NO_CONTEXT, parse_mode="Markdown")
         return
 
     session_id = ctx["session_id"]
@@ -68,9 +72,8 @@ async def handle_text_message(
     await delete_messages(bot, chat_id, [user_msg_id])
 
     progress_id = await send_step(
-        bot, chat_id, 0, 2,
-        "⏳ Записал ввод",
-        "Сохраняю текст и начинаю анализ...",
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.INPUT_SAVED, msg.INPUT_SAVED_DETAIL,
         progress_id,
     )
 
@@ -109,9 +112,8 @@ async def handle_voice_message(
     await delete_messages(bot, chat_id, [user_msg_id])
 
     progress_id = await send_step(
-        bot, chat_id, 0, 3,
-        "🎤 Получил аудио",
-        "Отправляю на распознавание речи (Whisper API)...",
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.VOICE_RECEIVED, msg.VOICE_RECEIVED_DETAIL,
         progress_id,
     )
 
@@ -121,22 +123,18 @@ async def handle_voice_message(
     transcript = await transcribe_telegram_voice(bot, voice.file_id)
 
     if not transcript:
-        await send_progress(
-            bot, chat_id,
-            "❌ Не удалось распознать аудио. Попробуйте отправить текстом.",
-            progress_id,
-        )
+        await send_progress(bot, chat_id, msg.VOICE_FAILED, progress_id)
         return
 
     # Typewriter reveal of transcription
     progress_id = await send_step(
-        bot, chat_id, 1, 3,
-        "📝 Распознаю текст...",
-        "Обрабатываю результат транскрипции...",
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.VOICE_TRANSCRIBING, msg.VOICE_TRANSCRIBING_DETAIL,
         progress_id,
     )
     progress_id = await typewriter_send(
-        bot, chat_id, transcript, prefix="📝 Распознано:\n", message_id=progress_id,
+        bot, chat_id, transcript,
+        prefix=msg.VOICE_TRANSCRIPT_PREFIX, message_id=progress_id,
     )
 
     async with async_session() as db:
@@ -158,9 +156,8 @@ async def handle_voice_message(
 
     # Continue to analysis
     progress_id = await send_step(
-        bot, chat_id, 2, 3,
-        "⏳ Анализирую...",
-        "Передаю текст в LLM для извлечения структуры процесса...",
+        bot, chat_id, 1, TOTAL_STEPS,
+        msg.ANALYZING, msg.ANALYZING_DETAIL,
         progress_id,
     )
     await _process_input(bot, chat_id, process_id, session_id, progress_id)
@@ -183,9 +180,7 @@ async def handle_document(
 
     mime = doc.mime_type or ""
     if not mime.startswith("audio/"):
-        await update.message.reply_text(
-            "Пока поддерживаются только аудиофайлы и голосовые сообщения."
-        )
+        await update.message.reply_text(msg.AUDIO_ONLY)
         return
 
     # Treat as voice
@@ -200,6 +195,11 @@ async def _process_input(
     """Extract AS-IS model, detect gaps, and decide next action.
 
     Shows step-by-step progress by editing a single message.
+    Progress bar goes from step 1..TOTAL_STEPS (6) where:
+      step 1 = input saved
+      step 2 = extracting structure
+      step 3 = evaluating completeness
+      step 4..6 = generation (handled in clarification.py)
     """
     from bot.handlers.callbacks import get_chat_context, save_chat_context
 
@@ -239,11 +239,10 @@ async def _process_input(
                 _model_to_dict(existing), ensure_ascii=False
             )
 
-    # LLM Call 1: Extract/update AS-IS model
+    # LLM Call 1: Extract/update AS-IS model  (step 2 of 6)
     progress_id = await send_step(
-        bot, chat_id, 1, 2,
-        "⏳ Извлекаю структуру процесса",
-        "LLM анализирует текст → цель, этапы, роли, системы, артефакты, метрики, боли...",
+        bot, chat_id, 2, TOTAL_STEPS,
+        msg.EXTRACTING_STRUCTURE, msg.EXTRACTING_STRUCTURE_DETAIL,
         progress_id,
     )
 
@@ -252,18 +251,13 @@ async def _process_input(
     )
 
     if not model_data:
-        await send_progress(
-            bot, chat_id,
-            "❌ Не удалось проанализировать ответ. Попробуйте описать подробнее.",
-            progress_id,
-        )
+        await send_progress(bot, chat_id, msg.ANALYSIS_FAILED, progress_id)
         return
 
-    # LLM Call 2: Detect gaps
+    # LLM Call 2: Detect gaps  (step 3 of 6)
     progress_id = await send_step(
-        bot, chat_id, 2, 2,
-        "⏳ Оцениваю полноту описания",
-        "LLM проверяет: все ли роли, системы, метрики, SLA, точки передачи указаны...",
+        bot, chat_id, 3, TOTAL_STEPS,
+        msg.EVALUATING_COMPLETENESS, msg.EVALUATING_COMPLETENESS_DETAIL,
         progress_id,
     )
 
@@ -333,9 +327,9 @@ async def _process_input(
             await db.commit()
 
             progress_id = await send_step(
-                bot, chat_id, 2, 2,
-                f"✅ Полнота описания: {display_score}%",
-                "Достаточно данных! Перехожу к генерации AS-IS страницы...",
+                bot, chat_id, 3, TOTAL_STEPS,
+                msg.COMPLETENESS_READY.format(pct=display_score),
+                msg.COMPLETENESS_READY_DETAIL,
                 progress_id,
             )
 
@@ -351,9 +345,9 @@ async def _process_input(
 
             # Edit progress message to show completeness, then to gap question
             progress_id = await send_step(
-                bot, chat_id, 2, 2,
-                f"📊 Полнота: {display_score}%",
-                "Задам уточняющие вопросы...",
+                bot, chat_id, 3, TOTAL_STEPS,
+                msg.COMPLETENESS_PARTIAL.format(pct=display_score),
+                msg.COMPLETENESS_PARTIAL_DETAIL,
                 progress_id,
             )
 

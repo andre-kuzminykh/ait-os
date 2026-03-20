@@ -367,15 +367,25 @@ class TestFR24_SendUrl:
 
             await trigger_asis_generation(99999, seed_process.id, bot)
 
-        # Find the message with inline keyboard (may be in edit or send)
+        # The final message should contain the URL (as text or button).
+        # For https URLs, an inline button is used. For http/localhost, the URL
+        # is embedded in the message text. Either way, verify AS-IS link exists.
         all_calls = list(bot.send_message.call_args_list) + list(bot.edit_message_text.call_args_list)
+        found = False
         for call in all_calls:
             kwargs = call[1]
+            text = kwargs.get("text", "")
             markup = kwargs.get("reply_markup")
+            # Check inline button
             if markup and hasattr(markup, "inline_keyboard"):
                 buttons = [
                     btn.text for row in markup.inline_keyboard for btn in row
                 ]
                 if any("AS-IS" in b for b in buttons):
-                    return  # Found it
-        pytest.fail("No 'Открыть AS-IS' button found")
+                    found = True
+                    break
+            # Check text contains URL
+            if ".html" in text and "AS-IS" in text:
+                found = True
+                break
+        assert found, "No AS-IS link found in buttons or text"
