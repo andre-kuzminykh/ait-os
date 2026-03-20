@@ -29,17 +29,17 @@ from tests.conftest import BotMock, make_callback_query
 
 
 class TestFR53_PageSize:
-    """PAGE_SIZE constant is 10."""
+    """PAGE_SIZE constant is 5."""
 
-    def test_page_size_is_10(self):
-        assert PAGE_SIZE == 10
+    def test_page_size_is_5(self):
+        assert PAGE_SIZE == 5
 
 
 class TestFR53_PaginationUnderLimit:
-    """When processes ≤ PAGE_SIZE, no arrows shown."""
+    """When processes ≤ PAGE_SIZE, no nav row shown."""
 
     @pytest.mark.asyncio
-    async def test_no_arrows_when_few_processes(self, db_session, patch_db):
+    async def test_no_nav_when_few_processes(self, db_session, patch_db):
         company = Company(name="Co")
         db_session.add(company)
         await db_session.flush()
@@ -48,7 +48,7 @@ class TestFR53_PaginationUnderLimit:
         db_session.add(respondent)
         await db_session.flush()
 
-        # Create 3 processes (< PAGE_SIZE)
+        # Create 3 processes (< PAGE_SIZE=5)
         for i in range(3):
             p = Process(company_id=company.id, name=f"Proc {i}", status=ProcessStatus.CREATED)
             db_session.add(p)
@@ -67,22 +67,18 @@ class TestFR53_PaginationUnderLimit:
         call_kwargs = bot.send_message.call_args[1]
         markup = call_kwargs["reply_markup"]
 
-        # Should have 3 process buttons + 1 "new process" button = 4 rows
+        # 3 processes + "Новый процесс" = 4 rows, no nav
         assert len(markup.inline_keyboard) == 4
-        # No arrows — last row should be "Новый процесс"
         last_row = markup.inline_keyboard[-1]
         assert last_row[0].callback_data == "new_process"
 
 
 class TestFR53_PaginationOverLimit:
-    """When processes > PAGE_SIZE, arrows and page indicator shown."""
-
-    @pytest.fixture()
-    def _seed_many(self):
-        """Marker — actual seeding in the test."""
+    """When processes > PAGE_SIZE, nav row with 3 buttons shown."""
 
     @pytest.mark.asyncio
-    async def test_arrows_when_many_processes(self, db_session, patch_db):
+    async def test_nav_row_first_page(self, db_session, patch_db):
+        """First page: inactive left (·), page indicator, active right."""
         company = Company(name="Co")
         db_session.add(company)
         await db_session.flush()
@@ -91,8 +87,8 @@ class TestFR53_PaginationOverLimit:
         db_session.add(respondent)
         await db_session.flush()
 
-        # Create 15 processes (> PAGE_SIZE=10)
-        for i in range(15):
+        # Create 12 processes (> PAGE_SIZE=5, 3 pages)
+        for i in range(12):
             p = Process(company_id=company.id, name=f"Proc {i}", status=ProcessStatus.CREATED)
             db_session.add(p)
             await db_session.flush()
@@ -110,19 +106,25 @@ class TestFR53_PaginationOverLimit:
         call_kwargs = bot.send_message.call_args[1]
         markup = call_kwargs["reply_markup"]
 
-        # Page 0: 10 processes + nav row + new process = 12 rows
-        assert len(markup.inline_keyboard) == 12
+        # Page 0: 5 processes + nav row + new process = 7 rows
+        assert len(markup.inline_keyboard) == 7
 
-        # Nav row is second to last
+        # Nav row is second to last (above "Новый процесс")
         nav_row = markup.inline_keyboard[-2]
-        # First page: page indicator + right arrow (no left arrow)
-        assert any("1/2" in btn.text for btn in nav_row)
-        assert any(btn.callback_data == "page_1" for btn in nav_row)
-        # No left arrow on first page
-        assert not any(btn.callback_data == "page_-1" for btn in nav_row)
+        assert len(nav_row) == 3  # always 3 buttons
+
+        # Left is inactive (·, noop)
+        assert nav_row[0].text == "·"
+        assert nav_row[0].callback_data == "page_noop"
+        # Center shows 1/3
+        assert "1/3" in nav_row[1].text
+        # Right is active
+        assert nav_row[2].text == "➡️"
+        assert nav_row[2].callback_data == "page_1"
 
     @pytest.mark.asyncio
-    async def test_second_page_has_left_arrow(self, db_session, patch_db):
+    async def test_nav_row_last_page(self, db_session, patch_db):
+        """Last page: active left, page indicator, inactive right (·)."""
         company = Company(name="Co")
         db_session.add(company)
         await db_session.flush()
@@ -131,7 +133,7 @@ class TestFR53_PaginationOverLimit:
         db_session.add(respondent)
         await db_session.flush()
 
-        for i in range(15):
+        for i in range(12):
             p = Process(company_id=company.id, name=f"Proc {i}", status=ProcessStatus.CREATED)
             db_session.add(p)
             await db_session.flush()
@@ -144,23 +146,64 @@ class TestFR53_PaginationOverLimit:
         await db_session.commit()
 
         bot = BotMock()
-        await show_process_list(99999, bot, 88889, page=1)
+        await show_process_list(99999, bot, 88889, page=2)
 
         call_kwargs = bot.send_message.call_args[1]
         markup = call_kwargs["reply_markup"]
 
-        # Page 1: 5 processes + nav row + new process = 7 rows
-        assert len(markup.inline_keyboard) == 7
+        # Page 2: 2 processes + nav row + new process = 4 rows
+        assert len(markup.inline_keyboard) == 4
 
-        # Nav row
         nav_row = markup.inline_keyboard[-2]
-        # Has left arrow and page indicator, no right arrow (last page)
-        assert any(btn.callback_data == "page_0" for btn in nav_row)
-        assert any("2/2" in btn.text for btn in nav_row)
+        assert len(nav_row) == 3
+
+        # Left is active
+        assert nav_row[0].text == "⬅️"
+        assert nav_row[0].callback_data == "page_1"
+        # Center shows 3/3
+        assert "3/3" in nav_row[1].text
+        # Right is inactive
+        assert nav_row[2].text == "·"
+        assert nav_row[2].callback_data == "page_noop"
 
     @pytest.mark.asyncio
-    async def test_exactly_10_no_arrows(self, db_session, patch_db):
-        """Exactly PAGE_SIZE processes — no pagination needed."""
+    async def test_nav_row_middle_page(self, db_session, patch_db):
+        """Middle page: both arrows active."""
+        company = Company(name="Co")
+        db_session.add(company)
+        await db_session.flush()
+
+        respondent = Respondent(telegram_user_id=88891, display_name="U")
+        db_session.add(respondent)
+        await db_session.flush()
+
+        for i in range(12):
+            p = Process(company_id=company.id, name=f"Proc {i}", status=ProcessStatus.CREATED)
+            db_session.add(p)
+            await db_session.flush()
+            s = InterviewSession(
+                process_id=p.id, respondent_id=respondent.id,
+                state=SessionStatus.STARTED,
+            )
+            db_session.add(s)
+
+        await db_session.commit()
+
+        bot = BotMock()
+        await show_process_list(99999, bot, 88891, page=1)
+
+        call_kwargs = bot.send_message.call_args[1]
+        markup = call_kwargs["reply_markup"]
+
+        nav_row = markup.inline_keyboard[-2]
+        assert len(nav_row) == 3
+        assert nav_row[0].callback_data == "page_0"
+        assert "2/3" in nav_row[1].text
+        assert nav_row[2].callback_data == "page_2"
+
+    @pytest.mark.asyncio
+    async def test_exactly_5_no_nav(self, db_session, patch_db):
+        """Exactly PAGE_SIZE processes — no nav row."""
         company = Company(name="Co")
         db_session.add(company)
         await db_session.flush()
@@ -169,7 +212,7 @@ class TestFR53_PaginationOverLimit:
         db_session.add(respondent)
         await db_session.flush()
 
-        for i in range(10):
+        for i in range(5):
             p = Process(company_id=company.id, name=f"Proc {i}", status=ProcessStatus.CREATED)
             db_session.add(p)
             await db_session.flush()
@@ -187,8 +230,8 @@ class TestFR53_PaginationOverLimit:
         call_kwargs = bot.send_message.call_args[1]
         markup = call_kwargs["reply_markup"]
 
-        # 10 processes + new process button = 11 rows (no nav)
-        assert len(markup.inline_keyboard) == 11
+        # 5 processes + new process button = 6 rows (no nav)
+        assert len(markup.inline_keyboard) == 6
         last_row = markup.inline_keyboard[-1]
         assert last_row[0].callback_data == "new_process"
 
@@ -627,3 +670,92 @@ class TestFR54_SelectAll:
             if row[0].callback_data and row[0].callback_data.startswith("opp_proceed_")
         ]
         assert "3 выбрано" in proceed_buttons[0].text
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# FR-56: AS-IS link shown inline with opportunities
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFR56_AsisUrlInMultiselect:
+    """asis_url parameter is included in opportunities text."""
+
+    @pytest.mark.asyncio
+    async def test_asis_url_in_text(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        bot = BotMock()
+        await show_opportunities_multiselect(
+            99999, seed_process.id, bot, asis_url="http://localhost:9090/pages/abc.html",
+        )
+
+        text = bot.send_message.call_args[1]["text"]
+        assert "http://localhost:9090/pages/abc.html" in text
+        assert "AS-IS" in text
+
+    @pytest.mark.asyncio
+    async def test_no_url_when_not_provided(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        assert "AS-IS готов:" not in text
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# FR-57: Mermaid sanitization
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFR57_MermaidSanitize:
+    """Mermaid code is sanitized to prevent render errors."""
+
+    def test_removes_quotes_from_labels(self):
+        from bot.services.mermaid import sanitize_mermaid
+
+        code = 'flowchart TD\n    A["Текст"] --> B["Другой"]'
+        result = sanitize_mermaid(code)
+        assert '["' not in result
+        assert 'A[Текст]' in result
+
+    def test_removes_special_chars(self):
+        from bot.services.mermaid import sanitize_mermaid
+
+        code = "flowchart TD\n    A[Текст & другой] --> B[#тест]"
+        result = sanitize_mermaid(code)
+        assert "&" not in result
+        assert "#" not in result
+
+    def test_removes_parentheses_in_labels(self):
+        from bot.services.mermaid import sanitize_mermaid
+
+        code = "flowchart TD\n    A[Получение запроса (клиент)] --> B[Ответ]"
+        result = sanitize_mermaid(code)
+        assert "(" not in result.split("-->")[0]
+
+    def test_strips_markdown_fences(self):
+        from bot.services.mermaid import sanitize_mermaid
+
+        code = "```mermaid\nflowchart TD\n    A[Текст] --> B[Текст]\n```"
+        result = sanitize_mermaid(code)
+        assert not result.startswith("```")
+        assert result.startswith("flowchart")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# FR-58: WeasyPrint optional
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFR58_WeasyPrintOptional:
+    """WeasyPrint missing does not crash the app."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_not_available(self):
+        from unittest.mock import patch
+        with patch("bot.services.pdf_converter._WEASYPRINT_AVAILABLE", False):
+            from bot.services.pdf_converter import convert_html_to_pdf
+            result = await convert_html_to_pdf("nonexistent_token")
+            assert result is None

@@ -98,7 +98,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await show_process_list(chat_id, context.bot, tg_user.id)
 
 
-PAGE_SIZE = 10  # Max processes shown per page
+PAGE_SIZE = 5  # Max processes shown per page
 
 
 async def show_process_list(
@@ -146,23 +146,26 @@ async def show_process_list(
             [InlineKeyboardButton(label, callback_data=f"view_{s.process.id}")]
         )
 
-    # Pagination arrows (only if more than one page)
+    # Pagination row: [⬅️] [N/M] [➡️] — inactive arrows when at bounds
     if total_pages > 1:
-        nav_row = []
+        # Left arrow: active or inactive
         if page > 0:
-            nav_row.append(
-                InlineKeyboardButton("⬅️", callback_data=f"page_{page - 1}")
-            )
-        nav_row.append(
-            InlineKeyboardButton(
-                f"{page + 1}/{total_pages}", callback_data="page_noop"
-            )
+            left_btn = InlineKeyboardButton("⬅️", callback_data=f"page_{page - 1}")
+        else:
+            left_btn = InlineKeyboardButton("·", callback_data="page_noop")
+
+        # Page indicator
+        center_btn = InlineKeyboardButton(
+            f"{page + 1}/{total_pages}", callback_data="page_noop",
         )
+
+        # Right arrow: active or inactive
         if page < total_pages - 1:
-            nav_row.append(
-                InlineKeyboardButton("➡️", callback_data=f"page_{page + 1}")
-            )
-        buttons.append(nav_row)
+            right_btn = InlineKeyboardButton("➡️", callback_data=f"page_{page + 1}")
+        else:
+            right_btn = InlineKeyboardButton("·", callback_data="page_noop")
+
+        buttons.append([left_btn, center_btn, right_btn])
 
     buttons.append(
         [InlineKeyboardButton("➕ Новый процесс", callback_data="new_process")]

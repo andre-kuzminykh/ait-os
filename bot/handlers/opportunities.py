@@ -31,11 +31,13 @@ _TYPE_LABELS = {
 async def show_opportunities_multiselect(
     chat_id: int, process_id: int, bot,
     message_id: int | None = None,
+    asis_url: str | None = None,
 ) -> None:
     """Show all opportunities as multiselect toggle buttons.
 
     Each opportunity is a short inline button. Toggled items show ✅ prefix.
     "Далее" button appears only when at least 1 is selected.
+    If asis_url is provided, an "Открыть AS-IS" link button is shown at top.
     """
     from bot.handlers.callbacks import get_chat_context, save_chat_context
 
@@ -63,7 +65,10 @@ async def show_opportunities_multiselect(
         return
 
     # Build description text
-    text = "🔍 *Потенциал автоматизации*\n\n"
+    header = ""
+    if asis_url:
+        header = f"✅ AS-IS готов: {asis_url}\n\n"
+    text = header + "🔍 *Потенциал автоматизации*\n\n"
     text += "Мы нашли следующие возможности автоматизации процесса"
     if process:
         text += f" *{process.name}*"

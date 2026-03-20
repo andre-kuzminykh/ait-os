@@ -696,65 +696,48 @@ async def _show_final_result(
     url: str | None, opps: list[dict],
     progress_id: int | None,
 ) -> None:
-    """Edit the progress message into the final result with AS-IS link."""
+    """Delete the progress message and show opportunities inline."""
     from bot.handlers.callbacks import get_chat_context, save_chat_context
+    from bot.handlers.opportunities import show_opportunities_multiselect
 
-    if url:
-        # Build keyboard — only use url= button if URL is https
-        buttons = []
-        if url.startswith("https://"):
-            buttons.append([InlineKeyboardButton(msg.BTN_OPEN_ASIS, url=url)])
-        if opps:
-            buttons.append([
-                InlineKeyboardButton(
-                    msg.BTN_CONTINUE_OPPS,
-                    callback_data=f"start_opps_{process_id}",
-                )
-            ])
-        keyboard = InlineKeyboardMarkup(buttons) if buttons else None
-
-        text = msg.ASIS_READY_TEXT.format(name=process_name, url=url)
-    else:
-        keyboard = None
-        if opps:
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    msg.BTN_CONTINUE_OPPS,
-                    callback_data=f"start_opps_{process_id}",
-                )
-            ]])
-        text = msg.ASIS_READY_TEXT_NO_URL.format(name=process_name)
-
-    if not opps:
-        text += f"\n\n{msg.GEN_NO_OPPS}"
-
-    sent_id = None
+    # Delete progress message (100% bar) — fresh message for opportunities
     if progress_id:
         try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=progress_id,
-                text=text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-            )
-            sent_id = progress_id
+            await bot.delete_message(chat_id=chat_id, message_id=progress_id)
         except Exception:
-            logger.debug("Could not edit progress message, sending new")
+            pass
 
-    if sent_id is None:
+    ctx = await get_chat_context(chat_id) or {}
+    ctx["clarification_active"] = False
+    await save_chat_context(chat_id, ctx)
+
+    if opps:
+        # Show opportunities multiselect directly (with AS-IS link)
+        await show_opportunities_multiselect(
+            chat_id, process_id, bot, asis_url=url,
+        )
+    else:
+        # No opportunities found — show AS-IS link only
+        if url:
+            text = msg.ASIS_READY_TEXT.format(name=process_name, url=url)
+            text += f"\n\n{msg.GEN_NO_OPPS}"
+            buttons = []
+            if url.startswith("https://"):
+                buttons.append([InlineKeyboardButton(msg.BTN_OPEN_ASIS, url=url)])
+            keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+        else:
+            text = msg.ASIS_READY_TEXT_NO_URL.format(name=process_name)
+            text += f"\n\n{msg.GEN_NO_OPPS}"
+            keyboard = None
+
         result = await bot.send_message(
             chat_id=chat_id,
             text=text,
             reply_markup=keyboard,
             parse_mode="Markdown",
         )
-        sent_id = result.message_id
-
-    ctx = await get_chat_context(chat_id) or {}
-    ctx["bot_message_id"] = sent_id
-    ctx["clarification_active"] = False
-    await save_chat_context(chat_id, ctx)
+        ctx["bot_message_id"] = result.message_id
+        await save_chat_context(chat_id, ctx)
 
 
 async def _regenerate_remaining_questions(
