@@ -18,6 +18,17 @@ from bot.states import OpportunityStatus, ProcessStatus
 
 logger = logging.getLogger(__name__)
 
+
+def _format_asis_link(url: str) -> str:
+    """Format AS-IS link for Telegram HTML message.
+
+    Telegram does not render <a href> for localhost URLs,
+    so fall back to plain URL text for local development.
+    """
+    if "://localhost" in url or "://127.0.0.1" in url:
+        return f"\n\n📄 AS-IS: {url}"
+    return f'\n\n<a href="{url}">📄 Открыть AS-IS</a>'
+
 # Type emoji mapping (short — just the emoji)
 _TYPE_EMOJI = {
     "ai": "🤖",
@@ -95,24 +106,28 @@ async def show_opportunities_multiselect(
         return
 
     # Build description text — compact: title + emoji, then benefit
-    text = "🔍 *Потенциал автоматизации*\n\n"
+    # Limit to 10 most important opportunities
+    display_opps = opps[:10]
 
-    for i, opp in enumerate(opps, 1):
+    text = "🔍 <b>Потенциал автоматизации</b>\n\n"
+
+    for i, opp in enumerate(display_opps, 1):
         emoji = _TYPE_EMOJI.get(opp.opp_type.value, "") if opp.opp_type else ""
-        text += f"{i}. {opp.title} {emoji}\n"
+        text += f"{i}. <b>{opp.title}</b> {emoji}\n"
         if opp.expected_benefit:
-            text += f"   _{opp.expected_benefit}_\n"
+            text += f"    <i>{opp.expected_benefit}</i>\n"
+        text += "\n"
 
-    text += "\nВыберите интересующие вас пункты:"
+    text += "Выберите интересующие вас пункты:"
 
     # AS-IS link at the bottom
     if asis_url:
-        text += f"\n\n[📄 Открыть AS-IS]({asis_url})"
+        text += _format_asis_link(asis_url)
 
-    # Build toggle buttons — title + emoji on the right
+    # Build toggle buttons — title + emoji on the right (max 10)
     buttons = []
     selected_count = 0
-    for opp in opps:
+    for opp in display_opps:
         is_selected = opp.status == OpportunityStatus.SELECTED
         if is_selected:
             selected_count += 1
@@ -146,7 +161,7 @@ async def show_opportunities_multiselect(
                 message_id=message_id,
                 text=text,
                 reply_markup=keyboard,
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
             sent_id = message_id
         except Exception:
@@ -157,7 +172,7 @@ async def show_opportunities_multiselect(
             chat_id=chat_id,
             text=text,
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         sent_id = result.message_id
 
@@ -221,11 +236,11 @@ async def handle_opportunity_proceed(
     # Show stub
     summary = f"✅ Выбрано {len(selected)} точек автоматизации:\n\n"
     for i, opp in enumerate(selected, 1):
-        summary += f"{i}. *{opp.title}*\n"
+        summary += f"{i}. <b>{opp.title}</b>\n"
 
     summary += (
         "\n🚀 Процесс готов к составлению TO-BE.\n\n"
-        "_Генерация TO-BE будет доступна в следующем обновлении._"
+        "<i>Генерация TO-BE будет доступна в следующем обновлении.</i>"
     )
 
     keyboard = InlineKeyboardMarkup([[
@@ -242,7 +257,7 @@ async def handle_opportunity_proceed(
                 message_id=message_id,
                 text=summary,
                 reply_markup=keyboard,
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
             return
         except Exception:
@@ -252,7 +267,7 @@ async def handle_opportunity_proceed(
         chat_id=chat_id,
         text=summary,
         reply_markup=keyboard,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 

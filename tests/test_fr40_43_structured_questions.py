@@ -581,14 +581,35 @@ class TestFR45_MessagesModule:
 
     @pytest.mark.asyncio
     async def test_asis_ready_text_has_placeholders(self):
-        """FR-45.2: ASIS_READY_TEXT has {name} and {url} placeholders."""
+        """FR-45.2: ASIS_READY_TEXT has {name} and {asis_link} placeholders."""
         import bot.messages as bmsg
 
         assert "{name}" in bmsg.ASIS_READY_TEXT
-        assert "{url}" in bmsg.ASIS_READY_TEXT
-        result = bmsg.ASIS_READY_TEXT.format(name="Test", url="https://example.com")
+        assert "{asis_link}" in bmsg.ASIS_READY_TEXT
+        result = bmsg.ASIS_READY_TEXT.format(
+            name="Test",
+            asis_link='<a href="https://example.com">📄 Открыть AS-IS</a>',
+        )
         assert "Test" in result
         assert "https://example.com" in result
+
+    @pytest.mark.asyncio
+    async def test_asis_ready_text_has_hyperlink(self):
+        """FR-45.3: ASIS_READY_TEXT formats asis_link placeholder."""
+        import bot.messages as bmsg
+
+        link = '<a href="https://example.com">📄 Открыть AS-IS</a>'
+        result = bmsg.ASIS_READY_TEXT.format(name="Test", asis_link=link)
+        assert '<a href="https://example.com">' in result
+
+    @pytest.mark.asyncio
+    async def test_asis_ready_text_has_bold_name(self):
+        """FR-45.4: ASIS_READY_TEXT uses <b> for process name."""
+        import bot.messages as bmsg
+
+        link = '<a href="https://example.com">📄 Открыть AS-IS</a>'
+        result = bmsg.ASIS_READY_TEXT.format(name="Test", asis_link=link)
+        assert "<b>Test</b>" in result
 
 
 # ============================================================================

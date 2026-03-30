@@ -359,7 +359,35 @@ SAMPLE_ASIS_MODEL = {
             "sla": "1 день",
             "pain_points": ["Ручной ввод"],
             "handoff_to": "stage_2",
-        }
+        },
+        {
+            "id": "stage_2",
+            "name": "Настройка рабочего места",
+            "description": "IT настраивает оборудование и доступы",
+            "owner_role": "IT",
+            "systems": ["Jira"],
+            "inputs": ["Трудовой договор"],
+            "outputs": ["Рабочее место"],
+            "artifacts": ["Заявка на оборудование"],
+            "metrics": [],
+            "sla": "2 дня",
+            "pain_points": ["Долгое согласование"],
+            "handoff_to": "stage_3",
+        },
+        {
+            "id": "stage_3",
+            "name": "Вводный инструктаж",
+            "description": "HR проводит вводный инструктаж",
+            "owner_role": "HR",
+            "systems": [],
+            "inputs": ["Рабочее место"],
+            "outputs": ["Готовое рабочее место"],
+            "artifacts": [],
+            "metrics": [],
+            "sla": "1 день",
+            "pain_points": [],
+            "handoff_to": None,
+        },
     ],
     "roles": ["HR", "IT"],
     "systems": ["1С", "Jira"],
@@ -409,9 +437,8 @@ SAMPLE_NARRATIVE = {
 }
 
 SAMPLE_MERMAID = """flowchart TD
-    A[Подписан оффер] --> B[Оформление документов]
-    B --> C[Настройка рабочего места]
-    C --> D[Готово]"""
+    A[Оформление документов] --> B[Настройка рабочего места]
+    B --> C[Вводный инструктаж]"""
 
 SAMPLE_CLARIFICATION_QUESTIONS = {
     "questions": [

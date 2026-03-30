@@ -242,11 +242,12 @@ async def show_process_detail(
     status_label = _STATUS_LABELS.get(process.status, process.status.value)
     icon = _STATUS_ICONS.get(process.status, "⚪")
 
-    text = f"{icon} *{process.name}*\n\nСтатус: {status_label}"
+    text = f'{icon} <b>{process.name}</b>\n\nСтатус: {status_label}'
     if completeness:
         text += f"\nПолнота: {completeness}%"
     if page_url:
-        text += f"\nAS-IS: {page_url}"
+        from bot.handlers.opportunities import _format_asis_link
+        text += _format_asis_link(page_url)
 
     buttons = []
 
@@ -307,14 +308,14 @@ async def show_process_detail(
             message_id=message_id,
             text=text,
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
     except Exception:
         await bot.send_message(
             chat_id=chat_id,
             text=text,
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
 

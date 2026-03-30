@@ -140,6 +140,42 @@ class TestFR20_SeparateMermaidCall:
 
         assert result == ""
 
+    @pytest.mark.asyncio
+    async def test_mermaid_block_count_matches_stages(self):
+        """FR-20.4: Mermaid diagram has same number of blocks as stages."""
+        from bot.services.mermaid import count_rect_nodes
+
+        with patch("bot.services.mermaid.chat", new_callable=AsyncMock, return_value=SAMPLE_MERMAID):
+            result = await generate_mermaid("Онбординг", SAMPLE_ASIS_MODEL)
+
+        stage_count = len(SAMPLE_ASIS_MODEL["stages"])
+        block_count = count_rect_nodes(result)
+        assert block_count == stage_count, (
+            f"Expected {stage_count} blocks, got {block_count}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mermaid_rejects_extra_blocks(self):
+        """FR-20.5: Mermaid with extra blocks triggers retry."""
+        bad_mermaid = """flowchart TD
+    A[Старт] --> B[Оформление] --> C[Настройка] --> D[Инструктаж] --> E[Конец]"""
+        good_mermaid = SAMPLE_MERMAID
+
+        call_count = 0
+
+        async def mock_chat(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return bad_mermaid
+            return good_mermaid
+
+        with patch("bot.services.mermaid.chat", side_effect=mock_chat):
+            result = await generate_mermaid("Онбординг", SAMPLE_ASIS_MODEL)
+
+        assert call_count >= 2, "Should have retried after block count mismatch"
+        assert "flowchart" in result.lower()
+
 
 # ============================================================================
 # FR-21: Validate Mermaid syntax before publication

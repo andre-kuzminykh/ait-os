@@ -387,6 +387,42 @@ class TestFR54_MultiselectDisplay:
         assert "📊" in text
 
     @pytest.mark.asyncio
+    async def test_uses_html_parse_mode(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Opportunities message uses parse_mode='HTML'."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        call_kwargs = bot.send_message.call_args[1]
+        assert call_kwargs["parse_mode"] == "HTML"
+
+    @pytest.mark.asyncio
+    async def test_titles_are_bold_html(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Opportunity titles wrapped in <b> tags."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        for opp in seed_opportunities:
+            assert f"<b>{opp.title}</b>" in text
+
+    @pytest.mark.asyncio
+    async def test_benefits_are_italic_html(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Expected benefits wrapped in <i> tags."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        for opp in seed_opportunities:
+            if opp.expected_benefit:
+                assert f"<i>{opp.expected_benefit}</i>" in text
+
+    @pytest.mark.asyncio
     async def test_no_opps_message(self, db_session, patch_db, seed_process):
         """When no opportunities found, shows appropriate message."""
         bot = BotMock()
@@ -394,6 +430,63 @@ class TestFR54_MultiselectDisplay:
 
         text = bot.send_message.call_args[1]["text"]
         assert "Не удалось выявить" in text
+
+
+class TestFR54_Spacing:
+    """Message has blank lines between opportunity items for readability."""
+
+    @pytest.mark.asyncio
+    async def test_blank_lines_between_items(
+        self, db_session, patch_db, seed_process, seed_opportunities,
+    ):
+        """Each opportunity item is separated by a blank line."""
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        text = bot.send_message.call_args[1]["text"]
+        # Between items there should be double newlines (blank line)
+        # e.g. "...benefit_\n\n2. Title..."
+        assert "\n\n2." in text
+        assert "\n\n3." in text
+
+
+class TestFR54_MaxTen:
+    """Display at most 10 opportunities."""
+
+    @pytest.mark.asyncio
+    async def test_max_10_opportunities_shown(
+        self, db_session, patch_db, seed_process,
+    ):
+        """When >10 opportunities, only first 10 displayed."""
+        # Create 12 opportunities
+        for i in range(12):
+            o = AutomationOpportunity(
+                process_id=seed_process.id,
+                title=f"Opp {i+1}",
+                opp_type=OpportunityType.AI,
+                expected_benefit=f"Benefit {i+1}",
+                status=OpportunityStatus.PROPOSED,
+            )
+            db_session.add(o)
+        await db_session.commit()
+
+        bot = BotMock()
+        await show_opportunities_multiselect(99999, seed_process.id, bot)
+
+        call_kwargs = bot.send_message.call_args[1]
+        text = call_kwargs["text"]
+        markup = call_kwargs["reply_markup"]
+
+        # Text should show 10. but not 11.
+        assert "10." in text
+        assert "11." not in text
+
+        # Toggle buttons should be exactly 10
+        toggle_buttons = [
+            row[0] for row in markup.inline_keyboard
+            if row[0].callback_data and row[0].callback_data.startswith("opp_toggle_")
+        ]
+        assert len(toggle_buttons) == 10
 
 
 class TestFR54_Toggle:
@@ -692,8 +785,8 @@ class TestFR56_AsisUrlInMultiselect:
         )
 
         text = bot.send_message.call_args[1]["text"]
-        assert "[📄 Открыть AS-IS](http://localhost:9090/pages/abc.html)" in text
-        assert text.rstrip().endswith(")")
+        # localhost URLs shown as plain text (Telegram doesn't render <a href> for localhost)
+        assert "http://localhost:9090/pages/abc.html" in text
 
     @pytest.mark.asyncio
     async def test_no_url_when_no_published_page(
@@ -723,7 +816,30 @@ class TestFR56_AsisUrlInMultiselect:
         await show_opportunities_multiselect(99999, seed_process.id, bot)
 
         text = bot.send_message.call_args[1]["text"]
-        assert "[📄 Открыть AS-IS](http://localhost:9090/pages/xyz.html)" in text
+        assert "http://localhost:9090/pages/xyz.html" in text
+
+    @pytest.mark.asyncio
+    async def test_format_asis_link_localhost_plain(self):
+        """Localhost URLs are plain text (Telegram ignores <a href> for them)."""
+        from bot.handlers.opportunities import _format_asis_link
+        result = _format_asis_link("http://localhost:8080/pages/abc.html")
+        assert "<a href" not in result
+        assert "http://localhost:8080/pages/abc.html" in result
+
+    @pytest.mark.asyncio
+    async def test_format_asis_link_public_hyperlink(self):
+        """Public URLs use HTML <a href> hyperlink."""
+        from bot.handlers.opportunities import _format_asis_link
+        result = _format_asis_link("https://example.com/pages/abc.html")
+        assert '<a href="https://example.com/pages/abc.html">' in result
+
+    @pytest.mark.asyncio
+    async def test_format_asis_link_127_plain(self):
+        """127.0.0.1 URLs are plain text like localhost."""
+        from bot.handlers.opportunities import _format_asis_link
+        result = _format_asis_link("http://127.0.0.1:8080/pages/abc.html")
+        assert "<a href" not in result
+        assert "http://127.0.0.1:8080/pages/abc.html" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════

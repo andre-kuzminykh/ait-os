@@ -726,7 +726,9 @@ async def _show_final_result(
     else:
         # No opportunities found — show AS-IS link only
         if url:
-            text = msg.ASIS_READY_TEXT.format(name=process_name, url=url)
+            from bot.handlers.opportunities import _format_asis_link
+            asis_link = _format_asis_link(url).strip()
+            text = msg.ASIS_READY_TEXT.format(name=process_name, asis_link=asis_link)
             text += f"\n\n{msg.GEN_NO_OPPS}"
             buttons = []
             if url.startswith("https://"):
@@ -741,7 +743,7 @@ async def _show_final_result(
             chat_id=chat_id,
             text=text,
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         ctx["bot_message_id"] = result.message_id
         await save_chat_context(chat_id, ctx)

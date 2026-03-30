@@ -176,8 +176,8 @@ class TestFR28_BusinessReadable:
 
     @pytest.mark.asyncio
     async def test_prompt_limits_count(self):
-        """FR-28.2: Prompt limits opportunities count (2-8) for digestibility."""
-        assert "2" in SYSTEM_PROMPT and "8" in SYSTEM_PROMPT
+        """FR-28.2: Prompt limits opportunities count (2-10) for digestibility."""
+        assert "2" in SYSTEM_PROMPT and "10" in SYSTEM_PROMPT
 
 
 # ============================================================================
